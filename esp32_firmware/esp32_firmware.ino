@@ -1,4 +1,5 @@
 #include <WiFi.h>
+#include <WiFiManager.h>
 #include <Preferences.h>
 #include <WebSocketsClient.h>
 #include <driver/i2s.h>
@@ -10,34 +11,13 @@
 #include <Fonts/FreeSans9pt7b.h>
 #include <Fonts/FreeSansBold12pt7b.h>
 
-#include <BLEDevice.h>
-#include <BLEServer.h>
-#include <BLEUtils.h>
-#include <BLE2902.h>
-
-// --- BLE Configuration ---
-#define SERVICE_UUID           "4fafc201-1fb5-459e-8fcc-c5c9c331914b"
-#define CHAR_UUID_SSID         "beb5483e-36e1-4688-b7f5-ea07361b26a8"
-#define CHAR_UUID_PASS         "cba1d466-344c-4be3-ab3f-189f80dd7518"
-#define CHAR_UUID_TOKEN        "f78ebbff-c8b7-4107-93de-889a6a06d408"
-#define CHAR_UUID_CONNECT      "ca73b3ba-39f6-4ab3-91ae-186dc9577d99"
-
 // --- Non-Volatile Storage ---
 Preferences preferences;
-String savedSSID = "";
-String savedPass = "";
 String deviceToken = "";
-bool bleSetupMode = false;
-bool triggerReboot = false;
-
-// Variables to hold BLE incoming data
-String ble_ssid = "";
-String ble_pass = "";
-String ble_token = "";
 
 // --- WebSocket Server (Render Cloud) ---
 const char* ws_host = "nexus-watch-backend.onrender.com";
-const uint16_t ws_port = 443;
+const uint16_t ws_port = 443; 
 const char* ws_path = "/audio-stream";
 WebSocketsClient webSocket;
 
@@ -67,7 +47,7 @@ int32_t sBuffer[BUFFER_LEN];
 OneButton button(BUTTON_PIN, true, true);
 
 // --- State Machine ---
-enum SystemState { IDLE, RECORDING_PTT, RECORDING_CONTINUOUS, PROCESSING, FEEDBACK, BLE_SETUP };
+enum SystemState { IDLE, RECORDING_PTT, RECORDING_CONTINUOUS, PROCESSING, FEEDBACK };
 SystemState currentState = IDLE;
 
 const char* ntpServer = "pool.ntp.org";
@@ -81,116 +61,56 @@ int pulseRadius = 15;
 bool pulseGrowing = true;
 unsigned long lastPulseUpdate = 0;
 
-// --- BLE Callbacks ---
-class MyServerCallbacks: public BLEServerCallbacks {
-    void onConnect(BLEServer* pServer) {
-      Serial.println("BLE Connected!");
-      tft.fillRect(10, 80, 108, 40, COLOR_BG);
-      tft.setCursor(15, 100);
-      tft.setTextColor(COLOR_ACCENT);
-      tft.print("Phone Paired!");
-    };
-    void onDisconnect(BLEServer* pServer) {
-      Serial.println("BLE Disconnected.");
-    }
-};
+// Flag for saving config
+bool shouldSaveConfig = false;
 
-class CharCallbacks: public BLECharacteristicCallbacks {
-    void onWrite(BLECharacteristic *pCharacteristic) {
-      std::string value = pCharacteristic->getValue();
-      String valStr = String(value.c_str());
-      String uuid = String(pCharacteristic->getUUID().toString().c_str());
-
-      if (uuid.indexOf("beb5483e") != -1) ble_ssid = valStr;
-      if (uuid.indexOf("cba1d466") != -1) ble_pass = valStr;
-      if (uuid.indexOf("f78ebbff") != -1) ble_token = valStr;
-      
-      if (uuid.indexOf("ca73b3ba") != -1) {
-        if (valStr == "1" || valStr == "CONNECT") {
-          Serial.println("Received Connect Command!");
-          triggerReboot = true;
-        }
-      }
-    }
-};
-
-void startBLEServer() {
-  BLEDevice::init("Nexus Watch");
-  BLEServer *pServer = BLEDevice::createServer();
-  pServer->setCallbacks(new MyServerCallbacks());
-
-  BLEService *pService = pServer->createService(SERVICE_UUID);
-
-  BLECharacteristic *pSSID = pService->createCharacteristic(CHAR_UUID_SSID, BLECharacteristic::PROPERTY_WRITE);
-  BLECharacteristic *pPASS = pService->createCharacteristic(CHAR_UUID_PASS, BLECharacteristic::PROPERTY_WRITE);
-  BLECharacteristic *pTOKEN = pService->createCharacteristic(CHAR_UUID_TOKEN, BLECharacteristic::PROPERTY_WRITE);
-  BLECharacteristic *pCONNECT = pService->createCharacteristic(CHAR_UUID_CONNECT, BLECharacteristic::PROPERTY_WRITE);
-
-  CharCallbacks *cb = new CharCallbacks();
-  pSSID->setCallbacks(cb);
-  pPASS->setCallbacks(cb);
-  pTOKEN->setCallbacks(cb);
-  pCONNECT->setCallbacks(cb);
-
-  pService->start();
-  BLEAdvertising *pAdvertising = BLEDevice::getAdvertising();
-  pAdvertising->addServiceUUID(SERVICE_UUID);
-  pAdvertising->setScanResponse(true);
-  pAdvertising->setMinPreferred(0x06);  
-  pAdvertising->setMinPreferred(0x12);
-  BLEDevice::startAdvertising();
-  
-  Serial.println("BLE Setup Mode Started. Waiting for phone...");
+void saveConfigCallback() {
+  Serial.println("Should save config");
+  shouldSaveConfig = true;
 }
 
 void setup() {
   Serial.begin(115200);
 
+  // Initialize TFT
   tft.initR(INITR_144GREENTAB);
   tft.setRotation(1); 
   tft.fillScreen(COLOR_BG);
   tft.setFont(&FreeSans9pt7b);
+  drawCenterText("Booting Nexus...", COLOR_TEXT, 64);
 
-  // Load preferences
+  // Load saved token from Memory
   preferences.begin("nexus_config", false);
-  savedSSID = preferences.getString("ssid", "");
-  savedPass = preferences.getString("pass", "");
-  deviceToken = preferences.getString("token", "");
-
-  Serial.println("Loaded SSID: " + savedSSID);
+  deviceToken = preferences.getString("deviceToken", "");
   Serial.println("Loaded Token: " + deviceToken);
 
-  if (savedSSID == "" || deviceToken == "") {
-    bleSetupMode = true;
-  } else {
-    drawCenterText("Connecting...", COLOR_ACCENT, 64);
-    WiFi.begin(savedSSID.c_str(), savedPass.c_str());
-    
-    int attempts = 0;
-    while (WiFi.status() != WL_CONNECTED && attempts < 20) {
-      delay(500);
-      Serial.print(".");
-      attempts++;
-    }
-    
-    if (WiFi.status() != WL_CONNECTED) {
-      Serial.println("\nFailed to connect. Entering BLE Setup...");
-      bleSetupMode = true;
-    } else {
-      Serial.println("\nWiFi Connected!");
-    }
+  // --- WiFi Manager Setup ---
+  WiFiManager wifiManager;
+  wifiManager.setSaveConfigCallback(saveConfigCallback);
+
+  // Add custom parameter for Device Token
+  WiFiManagerParameter custom_token("token", "Paste Device Token from Dashboard", deviceToken.c_str(), 50);
+  wifiManager.addParameter(&custom_token);
+
+  drawCenterText("Connecting to Wi-Fi...", COLOR_ACCENT, 64);
+
+  // Connect or create "Nexus Watch Setup"
+  if (!wifiManager.autoConnect("Nexus Watch Setup")) {
+    Serial.println("Failed to connect and hit timeout");
+    delay(3000);
+    ESP.restart(); // Reset and try again
   }
 
-  if (bleSetupMode) {
-    currentState = BLE_SETUP;
-    drawHUDBackground();
-    drawCenterText("Open Dashboard", COLOR_TEXT, 50);
-    drawCenterText("to Pair via BLE", COLOR_TEXT, 70);
-    startBLEServer();
-    return; // Don't initialize I2S or WebSockets yet
+  Serial.println("\nWiFi Connected");
+
+  // Save the custom token if coming from the portal
+  if (shouldSaveConfig) {
+    deviceToken = custom_token.getValue();
+    preferences.putString("deviceToken", deviceToken);
+    Serial.println("Saved new Token: " + deviceToken);
   }
 
-  // --- Normal Boot (Connected) ---
+  // --- Normal Boot ---
   drawCenterText("Syncing Time...", COLOR_ACCENT, 64);
   configTime(gmtOffset_sec, daylightOffset_sec, ntpServer);
   
@@ -228,24 +148,6 @@ void setup() {
 }
 
 void loop() {
-  if (bleSetupMode) {
-    if (triggerReboot) {
-      drawHUDBackground();
-      drawCenterText("Saving Data...", COLOR_ACCENT, 64);
-      
-      preferences.putString("ssid", ble_ssid);
-      preferences.putString("pass", ble_pass);
-      preferences.putString("token", ble_token);
-      
-      delay(1000);
-      drawCenterText("Rebooting!", COLOR_TEXT, 64);
-      delay(1000);
-      ESP.restart(); // The only safe way to switch from BLE to Wi-Fi
-    }
-    return; // Don't run rest of loop
-  }
-
-  // --- Normal Operation ---
   webSocket.loop();
   button.tick();
 

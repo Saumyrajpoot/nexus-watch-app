@@ -112,7 +112,7 @@ function Dashboard({ session }) {
   const [loading, setLoading] = useState(true);
   const [summaryModal, setSummaryModal] = useState({ isOpen: false, text: '', title: '' });
   const [deviceToken, setDeviceToken] = useState(null);
-  const [bleStatus, setBleStatus] = useState('');
+  const [copied, setCopied] = useState(false);
 
   const fetchEvents = async () => {
     try {
@@ -167,54 +167,11 @@ function Dashboard({ session }) {
     fetchEvents();
   };
 
-  const handleBluetoothSetup = async () => {
-    if (!deviceToken) {
-      alert("Please generate a Device Token first!");
-      return;
-    }
-
-    try {
-      setBleStatus("Scanning for Nexus Watch...");
-      const device = await navigator.bluetooth.requestDevice({
-        filters: [{ name: 'Nexus Watch' }],
-        optionalServices: ['4fafc201-1fb5-459e-8fcc-c5c9c331914b']
-      });
-
-      setBleStatus("Connecting to GATT Server...");
-      const server = await device.gatt.connect();
-
-      setBleStatus("Getting Service...");
-      const service = await server.getPrimaryService('4fafc201-1fb5-459e-8fcc-c5c9c331914b');
-
-      const ssid = prompt("Enter your Mobile Hotspot Name (SSID):");
-      if (!ssid) { setBleStatus(""); return; }
-      
-      const pass = prompt("Enter your Mobile Hotspot Password:");
-      if (!pass) { setBleStatus(""); return; }
-
-      setBleStatus("Sending SSID...");
-      const charSSID = await service.getCharacteristic('beb5483e-36e1-4688-b7f5-ea07361b26a8');
-      await charSSID.writeValue(new TextEncoder().encode(ssid));
-
-      setBleStatus("Sending Password...");
-      const charPASS = await service.getCharacteristic('cba1d466-344c-4be3-ab3f-189f80dd7518');
-      await charPASS.writeValue(new TextEncoder().encode(pass));
-
-      setBleStatus("Sending Device Token...");
-      const charTOKEN = await service.getCharacteristic('f78ebbff-c8b7-4107-93de-889a6a06d408');
-      await charTOKEN.writeValue(new TextEncoder().encode(deviceToken));
-
-      setBleStatus("Triggering Reboot...");
-      const charCONNECT = await service.getCharacteristic('ca73b3ba-39f6-4ab3-91ae-186dc9577d99');
-      await charCONNECT.writeValue(new TextEncoder().encode("1"));
-
-      setBleStatus("Setup Complete! Watch is restarting.");
-      setTimeout(() => setBleStatus(""), 4000);
-      
-    } catch (error) {
-      console.error(error);
-      setBleStatus("Bluetooth Error: " + error.message);
-      setTimeout(() => setBleStatus(""), 5000);
+  const handleCopyToken = () => {
+    if (deviceToken) {
+      navigator.clipboard.writeText(deviceToken);
+      setCopied(true);
+      setTimeout(() => setCopied(false), 2000);
     }
   };
 
@@ -254,9 +211,9 @@ function Dashboard({ session }) {
           <div>
             <h3 className="text-lg font-bold text-white flex items-center gap-2">
               <svg className="w-5 h-5 text-emerald-400" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path strokeLinecap="round" strokeLinejoin="round" strokeWidth="2" d="M12 18h.01M8 21h8a2 2 0 002-2V5a2 2 0 00-2-2H8a2 2 0 00-2 2v14a2 2 0 002 2z"></path></svg>
-              Link Your Watch
+              Device Token
             </h3>
-            <p className="text-sm text-slate-400 mt-1">Generate a Device Token and beam it directly to your watch via Bluetooth.</p>
+            <p className="text-sm text-slate-400 mt-1">Paste this token into the "Nexus Watch Setup" Wi-Fi Portal.</p>
           </div>
           <div className="flex flex-col gap-2 items-end">
             {!deviceToken ? (
@@ -265,13 +222,21 @@ function Dashboard({ session }) {
               </button>
             ) : (
               <div className="flex gap-2">
-                 <button onClick={handleBluetoothSetup} className="px-5 py-2.5 bg-blue-600 hover:bg-blue-500 text-white font-bold rounded-xl transition-all shadow-[0_0_15px_rgba(37,99,235,0.3)] flex items-center gap-2">
-                  <svg className="w-5 h-5" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path strokeLinecap="round" strokeLinejoin="round" strokeWidth="2" d="M13 10V3L4 14h7v7l9-11h-7z"></path></svg>
-                  Setup via Bluetooth
+                 <button onClick={handleCopyToken} className="px-5 py-2.5 bg-slate-700 hover:bg-slate-600 text-white font-bold rounded-xl transition-all border border-slate-600 flex items-center gap-2">
+                  {copied ? (
+                    <>
+                      <svg className="w-5 h-5 text-emerald-400" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path strokeLinecap="round" strokeLinejoin="round" strokeWidth="2" d="M5 13l4 4L19 7"></path></svg>
+                      Copied!
+                    </>
+                  ) : (
+                    <>
+                      <svg className="w-5 h-5 text-slate-300" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path strokeLinecap="round" strokeLinejoin="round" strokeWidth="2" d="M8 16H6a2 2 0 01-2-2V6a2 2 0 012-2h8a2 2 0 012 2v2m-6 12h8a2 2 0 002-2v-8a2 2 0 00-2-2h-8a2 2 0 00-2 2v8a2 2 0 002 2z"></path></svg>
+                      Copy Token
+                    </>
+                  )}
                 </button>
               </div>
             )}
-            {bleStatus && <p className="text-xs font-bold text-blue-400 animate-pulse">{bleStatus}</p>}
           </div>
         </div>
 
