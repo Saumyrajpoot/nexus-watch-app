@@ -165,6 +165,55 @@ wss.on('connection', (ws) => {
     });
 });
 
+const cron = require('node-cron');
+const twilio = require('twilio');
+
+// Initialize Twilio
+const twilioClient = process.env.TWILIO_ACCOUNT_SID ? twilio(process.env.TWILIO_ACCOUNT_SID, process.env.TWILIO_AUTH_TOKEN) : null;
+
+// Cron Job for AI Calling (Runs every minute)
+cron.schedule('* * * * *', async () => {
+    console.log("Checking for upcoming meetings...");
+    const now = new Date();
+    const oneMinLater = new Date(now.getTime() + 60000);
+    
+    // Find meetings happening between now and 1 min from now
+    const { data: meetings, error } = await supabase
+        .from('events')
+        .select('*')
+        .eq('type', 'meeting')
+        .gte('time', now.toISOString())
+        .lt('time', oneMinLater.toISOString());
+
+    if (error) {
+        console.error("Cron fetch error:", error);
+        return;
+    }
+
+    if (meetings && meetings.length > 0) {
+        for (const meeting of meetings) {
+            console.log(`Triggering Call for meeting: ${meeting.title}`);
+            if (twilioClient && process.env.TWILIO_PHONE_NUMBER && process.env.USER_PHONE_NUMBER) {
+                try {
+                    const twiml = new twilio.twiml.VoiceResponse();
+                    twiml.say({ voice: 'Polly.Matthew-Neural' }, `Hello. This is your Nexus Assistant. You have a scheduled task starting now: ${meeting.title}. Good luck!`);
+                    
+                    await twilioClient.calls.create({
+                        twiml: twiml.toString(),
+                        to: process.env.USER_PHONE_NUMBER,
+                        from: process.env.TWILIO_PHONE_NUMBER
+                    });
+                    console.log("Call successfully initiated!");
+                } catch(e) {
+                    console.error("Twilio Call failed:", e);
+                }
+            } else {
+                console.log("Twilio credentials missing. Cannot place call.");
+            }
+        }
+    }
+});
+
 const PORT = process.env.PORT || 3000;
 server.listen(PORT, () => {
     console.log(`Backend server listening on port ${PORT}`);

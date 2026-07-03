@@ -240,6 +240,30 @@ function Dashboard({ session }) {
           </div>
         </div>
 
+        {events.filter(e => e.type === 'meeting' && new Date(e.time) > new Date()).length > 0 && (
+          <div className="mb-10">
+            <h2 className="text-2xl font-bold tracking-tight text-white mb-4 flex items-center gap-2">
+              <svg className="w-6 h-6 text-blue-400" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path strokeLinecap="round" strokeLinejoin="round" strokeWidth="2" d="M12 8v4l3 3m6-3a9 9 0 11-18 0 9 9 0 0118 0z"></path></svg>
+              Upcoming Meetings
+            </h2>
+            <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
+              {events.filter(e => e.type === 'meeting' && new Date(e.time) > new Date()).map(event => (
+                <div key={event.id} className="bg-blue-900/20 border border-blue-500/30 p-5 rounded-2xl flex flex-col justify-between relative overflow-hidden group">
+                  <div className="absolute top-0 right-0 w-32 h-32 bg-blue-500/10 rounded-full blur-2xl -mr-10 -mt-10 pointer-events-none"></div>
+                  <div>
+                    <h3 className="text-xl font-bold text-white mb-1">{event.title}</h3>
+                    <p className="text-blue-200/70 text-sm font-medium">Scheduled for: {new Date(event.time).toLocaleString([], { dateStyle: 'medium', timeStyle: 'short' })}</p>
+                  </div>
+                  <div className="mt-4 flex items-center gap-2 text-xs font-bold text-blue-400 uppercase tracking-widest">
+                    <span className="w-2 h-2 rounded-full bg-blue-500 animate-pulse"></span>
+                    AI Call Scheduled
+                  </div>
+                </div>
+              ))}
+            </div>
+          </div>
+        )}
+
         <div className="flex flex-col sm:flex-row sm:items-center justify-between mb-8 gap-4">
           <h2 className="text-3xl font-bold tracking-tight text-white">Your Timeline</h2>
         </div>

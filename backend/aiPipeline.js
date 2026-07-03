@@ -37,7 +37,10 @@ async function processAudio(filePath, context, userId) {
         if (context === 'presentation') {
             systemPrompt = "You are an AI router. Listen to the audio. Transcribe it. Since this is a CONTINUOUS recording, classify the intent as 'presentation'. Extract a 'title' for the presentation, and put a detailed summary in the 'content' field.";
         } else {
-            systemPrompt = "You are an AI router. Listen to the audio. Transcribe it. Since this is a PTT recording, classify the intent as 'schedule' or 'log_note'. If schedule, extract title, time (use ISO8601, default near future), and duration_mins. If log_note, extract the content.";
+            systemPrompt = `You are an AI router. Listen to the audio. Transcribe it. 
+CRITICAL RULE: If the user says words like 'schedule', 'remind', 'book', 'call', 'meeting', or mentions a specific time/date (e.g., 'by 4 PM', 'tomorrow'), you MUST classify the intent as 'schedule'.
+If it is 'schedule', extract the 'title', a precise 'time' (in ISO8601 format), and 'duration_mins'.
+If the audio is just a general thought, classify as 'log_note' and extract the 'content'.`;
         }
         
         const response = await ai.models.generateContent({
