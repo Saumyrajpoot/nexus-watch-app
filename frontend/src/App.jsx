@@ -1,7 +1,6 @@
 import { useState, useEffect } from 'react';
 import { createClient } from '@supabase/supabase-js';
 
-// Initialize Supabase
 const supabaseUrl = import.meta.env.VITE_SUPABASE_URL;
 const supabaseAnonKey = import.meta.env.VITE_SUPABASE_ANON_KEY;
 const supabase = createClient(supabaseUrl, supabaseAnonKey);
@@ -113,6 +112,7 @@ function Dashboard({ session }) {
   const [loading, setLoading] = useState(true);
   const [summaryModal, setSummaryModal] = useState({ isOpen: false, text: '', title: '' });
   const [deviceToken, setDeviceToken] = useState(null);
+  const [bleStatus, setBleStatus] = useState('');
 
   const fetchEvents = async () => {
     try {
@@ -128,6 +128,21 @@ function Dashboard({ session }) {
     } finally {
       setLoading(false);
     }
+  };
+
+  const fetchDeviceToken = async () => {
+    try {
+      const { data, error } = await supabase
+        .from('devices')
+        .select('token')
+        .eq('user_id', session.user.id)
+        .order('created_at', { ascending: false })
+        .limit(1);
+      
+      if (data && data.length > 0) {
+        setDeviceToken(data[0].token);
+      }
+    } catch(err) {}
   };
 
   const generateToken = async () => {
@@ -152,27 +167,64 @@ function Dashboard({ session }) {
     fetchEvents();
   };
 
+  const handleBluetoothSetup = async () => {
+    if (!deviceToken) {
+      alert("Please generate a Device Token first!");
+      return;
+    }
+
+    try {
+      setBleStatus("Scanning for Nexus Watch...");
+      const device = await navigator.bluetooth.requestDevice({
+        filters: [{ name: 'Nexus Watch' }],
+        optionalServices: ['4fafc201-1fb5-459e-8fcc-c5c9c331914b']
+      });
+
+      setBleStatus("Connecting to GATT Server...");
+      const server = await device.gatt.connect();
+
+      setBleStatus("Getting Service...");
+      const service = await server.getPrimaryService('4fafc201-1fb5-459e-8fcc-c5c9c331914b');
+
+      const ssid = prompt("Enter your Mobile Hotspot Name (SSID):");
+      if (!ssid) { setBleStatus(""); return; }
+      
+      const pass = prompt("Enter your Mobile Hotspot Password:");
+      if (!pass) { setBleStatus(""); return; }
+
+      setBleStatus("Sending SSID...");
+      const charSSID = await service.getCharacteristic('beb5483e-36e1-4688-b7f5-ea07361b26a8');
+      await charSSID.writeValue(new TextEncoder().encode(ssid));
+
+      setBleStatus("Sending Password...");
+      const charPASS = await service.getCharacteristic('cba1d466-344c-4be3-ab3f-189f80dd7518');
+      await charPASS.writeValue(new TextEncoder().encode(pass));
+
+      setBleStatus("Sending Device Token...");
+      const charTOKEN = await service.getCharacteristic('f78ebbff-c8b7-4107-93de-889a6a06d408');
+      await charTOKEN.writeValue(new TextEncoder().encode(deviceToken));
+
+      setBleStatus("Triggering Reboot...");
+      const charCONNECT = await service.getCharacteristic('ca73b3ba-39f6-4ab3-91ae-186dc9577d99');
+      await charCONNECT.writeValue(new TextEncoder().encode("1"));
+
+      setBleStatus("Setup Complete! Watch is restarting.");
+      setTimeout(() => setBleStatus(""), 4000);
+      
+    } catch (error) {
+      console.error(error);
+      setBleStatus("Bluetooth Error: " + error.message);
+      setTimeout(() => setBleStatus(""), 5000);
+    }
+  };
+
   useEffect(() => {
     fetchEvents();
-    // Realtime subscription
+    fetchDeviceToken();
     const channel = supabase.channel('schema-db-changes')
-      .on(
-        'postgres_changes',
-        {
-          event: '*',
-          schema: 'public',
-          table: 'events',
-          filter: `user_id=eq.${session.user.id}`
-        },
-        (payload) => {
-          fetchEvents(); // Refresh on any change
-        }
-      )
+      .on('postgres_changes', { event: '*', schema: 'public', table: 'events', filter: `user_id=eq.${session.user.id}` }, () => fetchEvents())
       .subscribe();
-
-    return () => {
-      supabase.removeChannel(channel);
-    };
+    return () => supabase.removeChannel(channel);
   }, []);
 
   return (
@@ -204,20 +256,23 @@ function Dashboard({ session }) {
               <svg className="w-5 h-5 text-emerald-400" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path strokeLinecap="round" strokeLinejoin="round" strokeWidth="2" d="M12 18h.01M8 21h8a2 2 0 002-2V5a2 2 0 00-2-2H8a2 2 0 00-2 2v14a2 2 0 002 2z"></path></svg>
               Link Your Watch
             </h3>
-            <p className="text-sm text-slate-400 mt-1">Generate a Device Token to inject into your ESP32 code.</p>
+            <p className="text-sm text-slate-400 mt-1">Generate a Device Token and beam it directly to your watch via Bluetooth.</p>
           </div>
-          {deviceToken ? (
-            <div className="flex items-center gap-2 bg-slate-950 p-2 rounded-lg border border-slate-800">
-              <code className="text-emerald-400 text-sm font-mono px-2">{deviceToken}</code>
-              <button onClick={() => navigator.clipboard.writeText(deviceToken)} className="p-2 bg-slate-800 hover:bg-slate-700 rounded-md transition-colors" title="Copy to clipboard">
-                <svg className="w-4 h-4 text-white" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path strokeLinecap="round" strokeLinejoin="round" strokeWidth="2" d="M8 5H6a2 2 0 00-2 2v12a2 2 0 002 2h10a2 2 0 002-2v-1M8 5a2 2 0 002 2h2a2 2 0 002-2M8 5a2 2 0 012-2h2a2 2 0 012 2m0 0h2a2 2 0 012 2v3m2 4H10m0 0l3-3m-3 3l3 3"></path></svg>
+          <div className="flex flex-col gap-2 items-end">
+            {!deviceToken ? (
+              <button onClick={generateToken} className="px-5 py-2.5 bg-emerald-600 hover:bg-emerald-500 text-white font-bold rounded-xl transition-all shadow-[0_0_15px_rgba(16,185,129,0.3)]">
+                Generate Token
               </button>
-            </div>
-          ) : (
-            <button onClick={generateToken} className="px-5 py-2.5 bg-emerald-600 hover:bg-emerald-500 text-white font-bold rounded-xl transition-all shadow-[0_0_15px_rgba(16,185,129,0.3)]">
-              Generate Token
-            </button>
-          )}
+            ) : (
+              <div className="flex gap-2">
+                 <button onClick={handleBluetoothSetup} className="px-5 py-2.5 bg-blue-600 hover:bg-blue-500 text-white font-bold rounded-xl transition-all shadow-[0_0_15px_rgba(37,99,235,0.3)] flex items-center gap-2">
+                  <svg className="w-5 h-5" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path strokeLinecap="round" strokeLinejoin="round" strokeWidth="2" d="M13 10V3L4 14h7v7l9-11h-7z"></path></svg>
+                  Setup via Bluetooth
+                </button>
+              </div>
+            )}
+            {bleStatus && <p className="text-xs font-bold text-blue-400 animate-pulse">{bleStatus}</p>}
+          </div>
         </div>
 
         <div className="flex flex-col sm:flex-row sm:items-center justify-between mb-8 gap-4">
@@ -242,7 +297,7 @@ function Dashboard({ session }) {
         )}
       </main>
 
-      {/* Summary Modal (same as before) */}
+      {/* Summary Modal */}
       {summaryModal.isOpen && (
         <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/80 backdrop-blur-sm p-4">
           <div className="bg-slate-900 border border-slate-700 w-full max-w-2xl rounded-2xl shadow-2xl overflow-hidden flex flex-col max-h-[80vh]">
@@ -268,7 +323,6 @@ function EventCard({ event, openModal, onDelete }) {
 
   const handleGeneratePPT = async () => {
     alert("Generating PPT uses the backend. Make sure your local backend is running!");
-    // In production, this would call the deployed backend URL.
     try {
       const res = await fetch('https://nexus-watch-backend.onrender.com/api/generate-ppt', {
         method: 'POST',

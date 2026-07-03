@@ -1,4 +1,5 @@
 #include <WiFi.h>
+#include <Preferences.h>
 #include <WebSocketsClient.h>
 #include <driver/i2s.h>
 #include <OneButton.h>
@@ -9,19 +10,34 @@
 #include <Fonts/FreeSans9pt7b.h>
 #include <Fonts/FreeSansBold12pt7b.h>
 
-// ==========================================
-// 🚨🚨🚨 USER CONFIGURATION 🚨🚨🚨
-// ==========================================
-const char* ssid = "your_hotspot_name"; 
-const char* password = "your_hotspot_password"; 
+#include <BLEDevice.h>
+#include <BLEServer.h>
+#include <BLEUtils.h>
+#include <BLE2902.h>
 
-// PASTE YOUR DEVICE TOKEN FROM THE DASHBOARD HERE:
-#define DEVICE_TOKEN "PASTE_YOUR_DEVICE_TOKEN_HERE"
-// ==========================================
+// --- BLE Configuration ---
+#define SERVICE_UUID           "4fafc201-1fb5-459e-8fcc-c5c9c331914b"
+#define CHAR_UUID_SSID         "beb5483e-36e1-4688-b7f5-ea07361b26a8"
+#define CHAR_UUID_PASS         "cba1d466-344c-4be3-ab3f-189f80dd7518"
+#define CHAR_UUID_TOKEN        "f78ebbff-c8b7-4107-93de-889a6a06d408"
+#define CHAR_UUID_CONNECT      "ca73b3ba-39f6-4ab3-91ae-186dc9577d99"
+
+// --- Non-Volatile Storage ---
+Preferences preferences;
+String savedSSID = "";
+String savedPass = "";
+String deviceToken = "";
+bool bleSetupMode = false;
+bool triggerReboot = false;
+
+// Variables to hold BLE incoming data
+String ble_ssid = "";
+String ble_pass = "";
+String ble_token = "";
 
 // --- WebSocket Server (Render Cloud) ---
 const char* ws_host = "nexus-watch-backend.onrender.com";
-const uint16_t ws_port = 443; // 443 is for secure WSS
+const uint16_t ws_port = 443;
 const char* ws_path = "/audio-stream";
 WebSocketsClient webSocket;
 
@@ -31,7 +47,6 @@ WebSocketsClient webSocket;
 #define TFT_DC     16
 Adafruit_ST7735 tft = Adafruit_ST7735(TFT_CS, TFT_DC, TFT_RST);
 
-// Colors (16-bit 565 format)
 #define COLOR_BG      0x0821  
 #define COLOR_GRID    0x10A2  
 #define COLOR_TEXT    0xFFFF  
@@ -52,45 +67,133 @@ int32_t sBuffer[BUFFER_LEN];
 OneButton button(BUTTON_PIN, true, true);
 
 // --- State Machine ---
-enum SystemState { IDLE, RECORDING_PTT, RECORDING_CONTINUOUS, PROCESSING, FEEDBACK };
+enum SystemState { IDLE, RECORDING_PTT, RECORDING_CONTINUOUS, PROCESSING, FEEDBACK, BLE_SETUP };
 SystemState currentState = IDLE;
 
-// --- Time and UI Variables ---
 const char* ntpServer = "pool.ntp.org";
-const long  gmtOffset_sec = 19800; // IST is UTC+5:30
+const long  gmtOffset_sec = 19800; // IST
 const int   daylightOffset_sec = 0;
 String feedbackMessage = "";
 unsigned long feedbackTimer = 0;
 unsigned long lastWatchfaceUpdate = 0;
 
-// Animation Variables
 int pulseRadius = 15;
 bool pulseGrowing = true;
 unsigned long lastPulseUpdate = 0;
 
+// --- BLE Callbacks ---
+class MyServerCallbacks: public BLEServerCallbacks {
+    void onConnect(BLEServer* pServer) {
+      Serial.println("BLE Connected!");
+      tft.fillRect(10, 80, 108, 40, COLOR_BG);
+      tft.setCursor(15, 100);
+      tft.setTextColor(COLOR_ACCENT);
+      tft.print("Phone Paired!");
+    };
+    void onDisconnect(BLEServer* pServer) {
+      Serial.println("BLE Disconnected.");
+    }
+};
+
+class CharCallbacks: public BLECharacteristicCallbacks {
+    void onWrite(BLECharacteristic *pCharacteristic) {
+      std::string value = pCharacteristic->getValue();
+      String valStr = String(value.c_str());
+      String uuid = String(pCharacteristic->getUUID().toString().c_str());
+
+      if (uuid.indexOf("beb5483e") != -1) ble_ssid = valStr;
+      if (uuid.indexOf("cba1d466") != -1) ble_pass = valStr;
+      if (uuid.indexOf("f78ebbff") != -1) ble_token = valStr;
+      
+      if (uuid.indexOf("ca73b3ba") != -1) {
+        if (valStr == "1" || valStr == "CONNECT") {
+          Serial.println("Received Connect Command!");
+          triggerReboot = true;
+        }
+      }
+    }
+};
+
+void startBLEServer() {
+  BLEDevice::init("Nexus Watch");
+  BLEServer *pServer = BLEDevice::createServer();
+  pServer->setCallbacks(new MyServerCallbacks());
+
+  BLEService *pService = pServer->createService(SERVICE_UUID);
+
+  BLECharacteristic *pSSID = pService->createCharacteristic(CHAR_UUID_SSID, BLECharacteristic::PROPERTY_WRITE);
+  BLECharacteristic *pPASS = pService->createCharacteristic(CHAR_UUID_PASS, BLECharacteristic::PROPERTY_WRITE);
+  BLECharacteristic *pTOKEN = pService->createCharacteristic(CHAR_UUID_TOKEN, BLECharacteristic::PROPERTY_WRITE);
+  BLECharacteristic *pCONNECT = pService->createCharacteristic(CHAR_UUID_CONNECT, BLECharacteristic::PROPERTY_WRITE);
+
+  CharCallbacks *cb = new CharCallbacks();
+  pSSID->setCallbacks(cb);
+  pPASS->setCallbacks(cb);
+  pTOKEN->setCallbacks(cb);
+  pCONNECT->setCallbacks(cb);
+
+  pService->start();
+  BLEAdvertising *pAdvertising = BLEDevice::getAdvertising();
+  pAdvertising->addServiceUUID(SERVICE_UUID);
+  pAdvertising->setScanResponse(true);
+  pAdvertising->setMinPreferred(0x06);  
+  pAdvertising->setMinPreferred(0x12);
+  BLEDevice::startAdvertising();
+  
+  Serial.println("BLE Setup Mode Started. Waiting for phone...");
+}
+
 void setup() {
   Serial.begin(115200);
 
-  // Initialize TFT
   tft.initR(INITR_144GREENTAB);
   tft.setRotation(1); 
   tft.fillScreen(COLOR_BG);
-  
   tft.setFont(&FreeSans9pt7b);
-  drawCenterText("Booting Nexus...", COLOR_TEXT, 64);
 
-  // Initialize WiFi
-  WiFi.begin(ssid, password);
-  while (WiFi.status() != WL_CONNECTED) {
-    delay(500);
-    Serial.print(".");
+  // Load preferences
+  preferences.begin("nexus_config", false);
+  savedSSID = preferences.getString("ssid", "");
+  savedPass = preferences.getString("pass", "");
+  deviceToken = preferences.getString("token", "");
+
+  Serial.println("Loaded SSID: " + savedSSID);
+  Serial.println("Loaded Token: " + deviceToken);
+
+  if (savedSSID == "" || deviceToken == "") {
+    bleSetupMode = true;
+  } else {
+    drawCenterText("Connecting...", COLOR_ACCENT, 64);
+    WiFi.begin(savedSSID.c_str(), savedPass.c_str());
+    
+    int attempts = 0;
+    while (WiFi.status() != WL_CONNECTED && attempts < 20) {
+      delay(500);
+      Serial.print(".");
+      attempts++;
+    }
+    
+    if (WiFi.status() != WL_CONNECTED) {
+      Serial.println("\nFailed to connect. Entering BLE Setup...");
+      bleSetupMode = true;
+    } else {
+      Serial.println("\nWiFi Connected!");
+    }
   }
-  
-  // Sync Time
+
+  if (bleSetupMode) {
+    currentState = BLE_SETUP;
+    drawHUDBackground();
+    drawCenterText("Open Dashboard", COLOR_TEXT, 50);
+    drawCenterText("to Pair via BLE", COLOR_TEXT, 70);
+    startBLEServer();
+    return; // Don't initialize I2S or WebSockets yet
+  }
+
+  // --- Normal Boot (Connected) ---
   drawCenterText("Syncing Time...", COLOR_ACCENT, 64);
   configTime(gmtOffset_sec, daylightOffset_sec, ntpServer);
   
-  // Initialize I2S
   const i2s_config_t i2s_config = {
     .mode = (i2s_mode_t)(I2S_MODE_MASTER | I2S_MODE_RX),
     .sample_rate = 16000,
@@ -113,11 +216,9 @@ void setup() {
   i2s_driver_install(I2S_PORT, &i2s_config, 0, NULL);
   i2s_set_pin(I2S_PORT, &pin_config);
 
-  // Initialize Secure WebSockets to Render
   webSocket.beginSSL(ws_host, ws_port, ws_path);
   webSocket.onEvent(webSocketEvent);
 
-  // Initialize Button
   button.attachLongPressStart(handleHoldStart);
   button.attachLongPressStop(handleHoldStop);
   button.attachDoubleClick(handleDoubleClick);
@@ -127,6 +228,24 @@ void setup() {
 }
 
 void loop() {
+  if (bleSetupMode) {
+    if (triggerReboot) {
+      drawHUDBackground();
+      drawCenterText("Saving Data...", COLOR_ACCENT, 64);
+      
+      preferences.putString("ssid", ble_ssid);
+      preferences.putString("pass", ble_pass);
+      preferences.putString("token", ble_token);
+      
+      delay(1000);
+      drawCenterText("Rebooting!", COLOR_TEXT, 64);
+      delay(1000);
+      ESP.restart(); // The only safe way to switch from BLE to Wi-Fi
+    }
+    return; // Don't run rest of loop
+  }
+
+  // --- Normal Operation ---
   webSocket.loop();
   button.tick();
 
@@ -149,7 +268,6 @@ void loop() {
     }
   }
 
-  // --- Audio Streaming ---
   if (currentState == RECORDING_PTT || currentState == RECORDING_CONTINUOUS) {
     size_t bytesIn = 0;
     esp_err_t result = i2s_read(I2S_PORT, &sBuffer, BUFFER_LEN * sizeof(int32_t), &bytesIn, portMAX_DELAY);
@@ -194,12 +312,10 @@ void handleDoubleClick() {
   }
 }
 
-// --- WebSocket Handler ---
 void webSocketEvent(WStype_t type, uint8_t * payload, size_t length) {
   if (type == WStype_CONNECTED) {
     Serial.println("[WS] Connected to Cloud Server!");
-    // SEND THE AUTHENTICATION TOKEN IMMEDIATELY!
-    String authMsg = String("TOKEN:") + DEVICE_TOKEN;
+    String authMsg = String("TOKEN:") + deviceToken;
     webSocket.sendTXT(authMsg);
   }
   else if (type == WStype_TEXT) {
@@ -211,7 +327,6 @@ void webSocketEvent(WStype_t type, uint8_t * payload, size_t length) {
   }
 }
 
-// --- UI Drawing Functions ---
 void drawHUDBackground() {
   tft.fillScreen(COLOR_BG);
   for (int i = 0; i < 128; i += 16) {
@@ -234,18 +349,14 @@ void drawCenterText(String text, uint16_t color, int yPos) {
 
 void drawWatchface() {
   struct tm timeinfo;
-  if(!getLocalTime(&timeinfo)){
-    return;
-  }
+  if(!getLocalTime(&timeinfo)) return;
   tft.fillRect(10, 20, 108, 60, COLOR_BG);
-
   tft.setFont(&FreeSansBold12pt7b);
   tft.setTextColor(COLOR_TEXT);
   char timeStr[10];
   sprintf(timeStr, "%02d:%02d", timeinfo.tm_hour, timeinfo.tm_min);
   tft.setCursor(28, 50);
   tft.print(timeStr);
-
   tft.setFont(&FreeSans9pt7b);
   tft.setTextColor(COLOR_ACCENT);
   char dateStr[15];
@@ -256,13 +367,10 @@ void drawWatchface() {
 
 void animatePulse() {
   tft.drawCircle(64, 50, pulseRadius, COLOR_BG);
-  
   if (pulseGrowing) pulseRadius++;
   else pulseRadius--;
-  
   if (pulseRadius > 25) pulseGrowing = false;
   if (pulseRadius < 15) pulseGrowing = true;
-  
   tft.drawCircle(64, 50, pulseRadius, COLOR_RECORD);
   tft.fillCircle(64, 50, 10, COLOR_RECORD); 
 }
@@ -271,18 +379,14 @@ void drawFeedbackModal(String msg) {
   tft.fillRect(8, 28, 112, 72, 0x0000); 
   tft.fillRoundRect(5, 25, 118, 78, 8, COLOR_MODAL);
   tft.drawRoundRect(5, 25, 118, 78, 8, COLOR_ACCENT); 
-  
   tft.setFont(); 
   tft.setTextColor(COLOR_ACCENT);
   tft.setCursor(15, 30);
   tft.print("NEXUS UPDATE");
-  
   tft.drawLine(5, 40, 123, 40, COLOR_ACCENT);
-  
   tft.setTextColor(COLOR_TEXT);
   tft.setCursor(10, 45);
   tft.setTextWrap(true);
   tft.print(msg);
-  
   tft.setFont(&FreeSans9pt7b);
 }
