@@ -112,6 +112,7 @@ function Dashboard({ session }) {
   const [loading, setLoading] = useState(true);
   const [summaryModal, setSummaryModal] = useState({ isOpen: false, text: '', title: '' });
   const [deviceToken, setDeviceToken] = useState(null);
+  const [phoneNumber, setPhoneNumber] = useState('');
   const [copied, setCopied] = useState(false);
 
   const fetchEvents = async () => {
@@ -134,15 +135,29 @@ function Dashboard({ session }) {
     try {
       const { data, error } = await supabase
         .from('devices')
-        .select('token')
+        .select('token, phone_number')
         .eq('user_id', session.user.id)
         .order('created_at', { ascending: false })
         .limit(1);
       
       if (data && data.length > 0) {
         setDeviceToken(data[0].token);
+        if (data[0].phone_number) setPhoneNumber(data[0].phone_number);
       }
     } catch(err) {}
+  };
+
+  const savePhoneNumber = async () => {
+    try {
+      const { error } = await supabase
+        .from('devices')
+        .update({ phone_number: phoneNumber })
+        .eq('token', deviceToken);
+      if (error) throw error;
+      alert("Phone number saved! AI Calling is active.");
+    } catch(err) {
+      alert("Failed to save phone number.");
+    }
   };
 
   const generateToken = async () => {
@@ -215,22 +230,34 @@ function Dashboard({ session }) {
             </h3>
             <p className="text-sm text-slate-400 mt-1">Paste this token into the "Nexus Watch Setup" Wi-Fi Portal.</p>
           </div>
-          <div className="flex flex-col gap-2 items-end">
+          <div className="flex flex-col gap-3 items-end w-full md:w-auto mt-4 md:mt-0">
             {!deviceToken ? (
               <button onClick={generateToken} className="px-5 py-2.5 bg-emerald-600 hover:bg-emerald-500 text-white font-bold rounded-xl transition-all shadow-[0_0_15px_rgba(16,185,129,0.3)]">
                 Generate Token
               </button>
             ) : (
-              <div className="flex gap-2">
-                 <button onClick={handleCopyToken} className="px-5 py-2.5 bg-slate-700 hover:bg-slate-600 text-white font-bold rounded-xl transition-all border border-slate-600 flex items-center gap-2">
+              <div className="flex flex-col sm:flex-row gap-3 w-full md:w-auto items-end sm:items-center">
+                <div className="flex bg-slate-800 rounded-xl overflow-hidden border border-slate-700">
+                  <input 
+                    type="text" 
+                    value={phoneNumber} 
+                    onChange={(e) => setPhoneNumber(e.target.value)} 
+                    placeholder="Alert Phone (e.g. +91...)" 
+                    className="bg-transparent text-white px-3 py-2 outline-none w-44 text-sm font-medium placeholder:text-slate-500"
+                  />
+                  <button onClick={savePhoneNumber} className="bg-emerald-600 hover:bg-emerald-500 text-white px-4 text-sm font-bold transition-colors">
+                    SAVE
+                  </button>
+                </div>
+                 <button onClick={handleCopyToken} className="px-4 py-2.5 bg-slate-700 hover:bg-slate-600 text-white text-sm font-bold rounded-xl transition-all border border-slate-600 flex items-center justify-center gap-2">
                   {copied ? (
                     <>
-                      <svg className="w-5 h-5 text-emerald-400" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path strokeLinecap="round" strokeLinejoin="round" strokeWidth="2" d="M5 13l4 4L19 7"></path></svg>
+                      <svg className="w-4 h-4 text-emerald-400" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path strokeLinecap="round" strokeLinejoin="round" strokeWidth="2" d="M5 13l4 4L19 7"></path></svg>
                       Copied!
                     </>
                   ) : (
                     <>
-                      <svg className="w-5 h-5 text-slate-300" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path strokeLinecap="round" strokeLinejoin="round" strokeWidth="2" d="M8 16H6a2 2 0 01-2-2V6a2 2 0 012-2h8a2 2 0 012 2v2m-6 12h8a2 2 0 002-2v-8a2 2 0 00-2-2h-8a2 2 0 00-2 2v8a2 2 0 002 2z"></path></svg>
+                      <svg className="w-4 h-4 text-slate-300" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path strokeLinecap="round" strokeLinejoin="round" strokeWidth="2" d="M8 16H6a2 2 0 01-2-2V6a2 2 0 012-2h8a2 2 0 012 2v2m-6 12h8a2 2 0 002-2v-8a2 2 0 00-2-2h-8a2 2 0 00-2 2v8a2 2 0 002 2z"></path></svg>
                       Copy Token
                     </>
                   )}

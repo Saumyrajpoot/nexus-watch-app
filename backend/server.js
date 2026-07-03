@@ -193,22 +193,36 @@ cron.schedule('* * * * *', async () => {
     if (meetings && meetings.length > 0) {
         for (const meeting of meetings) {
             console.log(`Triggering Call for meeting: ${meeting.title}`);
-            if (twilioClient && process.env.TWILIO_PHONE_NUMBER && process.env.USER_PHONE_NUMBER) {
+            
+            // Dynamically fetch the user's phone number from their profile
+            let userPhone = null;
+            const { data: deviceData } = await supabase
+                .from('devices')
+                .select('phone_number')
+                .eq('user_id', meeting.user_id)
+                .limit(1)
+                .single();
+                
+            if (deviceData && deviceData.phone_number) {
+                userPhone = deviceData.phone_number;
+            }
+
+            if (twilioClient && process.env.TWILIO_PHONE_NUMBER && userPhone) {
                 try {
                     const twiml = new twilio.twiml.VoiceResponse();
                     twiml.say({ voice: 'Polly.Matthew-Neural' }, `Hello. This is your Nexus Assistant. You have a scheduled task starting now: ${meeting.title}. Good luck!`);
                     
                     await twilioClient.calls.create({
                         twiml: twiml.toString(),
-                        to: process.env.USER_PHONE_NUMBER,
+                        to: userPhone,
                         from: process.env.TWILIO_PHONE_NUMBER
                     });
-                    console.log("Call successfully initiated!");
+                    console.log(`Call successfully initiated to ${userPhone}!`);
                 } catch(e) {
                     console.error("Twilio Call failed:", e);
                 }
             } else {
-                console.log("Twilio credentials missing. Cannot place call.");
+                console.log(`Twilio credentials or user phone missing for user ${meeting.user_id}. Cannot place call.`);
             }
         }
     }
