@@ -1,0 +1,15 @@
+# Node
+node_modules/
+npm-debug.log
+yarn-error.log
+
+# Environment
+.env
+.env.local
+
+# Temp Audio
+backend/temp_audio/
+*.wav
+
+# Mac
+.DS_Store
