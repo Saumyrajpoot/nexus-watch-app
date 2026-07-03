@@ -6,18 +6,22 @@
 #include <SPI.h>
 #include <Adafruit_GFX.h>
 #include <Adafruit_ST7735.h>
-
-// Include nice fonts from Adafruit library
 #include <Fonts/FreeSans9pt7b.h>
 #include <Fonts/FreeSansBold12pt7b.h>
 
-// --- WiFi Credentials ---
-const char* ssid = "your_ssid"; // PUT YOUR HOTSPOT NAME HERE
-const char* password = "your_password"; // PUT YOUR HOTSPOT PASSWORD HERE
+// ==========================================
+// 🚨🚨🚨 USER CONFIGURATION 🚨🚨🚨
+// ==========================================
+const char* ssid = "your_hotspot_name"; 
+const char* password = "your_hotspot_password"; 
 
-// --- WebSocket Server ---
-const char* ws_host = "192.168.137.1";
-const uint16_t ws_port = 3000;
+// PASTE YOUR DEVICE TOKEN FROM THE DASHBOARD HERE:
+#define DEVICE_TOKEN "PASTE_YOUR_DEVICE_TOKEN_HERE"
+// ==========================================
+
+// --- WebSocket Server (Render Cloud) ---
+const char* ws_host = "nexus-watch-backend.onrender.com";
+const uint16_t ws_port = 443; // 443 is for secure WSS
 const char* ws_path = "/audio-stream";
 WebSocketsClient webSocket;
 
@@ -28,12 +32,12 @@ WebSocketsClient webSocket;
 Adafruit_ST7735 tft = Adafruit_ST7735(TFT_CS, TFT_DC, TFT_RST);
 
 // Colors (16-bit 565 format)
-#define COLOR_BG      0x0821  // Very dark blue/slate
-#define COLOR_GRID    0x10A2  // Faint blue for HUD grid
-#define COLOR_TEXT    0xFFFF  // White
-#define COLOR_ACCENT  0x07E0  // Bright Green
-#define COLOR_RECORD  0xF800  // Red
-#define COLOR_MODAL   0x2124  // Dark gray/blue for popup
+#define COLOR_BG      0x0821  
+#define COLOR_GRID    0x10A2  
+#define COLOR_TEXT    0xFFFF  
+#define COLOR_ACCENT  0x07E0  
+#define COLOR_RECORD  0xF800  
+#define COLOR_MODAL   0x2124  
 
 // --- Microphone Pins (I2S) ---
 #define I2S_WS 25
@@ -109,8 +113,8 @@ void setup() {
   i2s_driver_install(I2S_PORT, &i2s_config, 0, NULL);
   i2s_set_pin(I2S_PORT, &pin_config);
 
-  // Initialize WebSockets
-  webSocket.begin(ws_host, ws_port, ws_path);
+  // Initialize Secure WebSockets to Render
+  webSocket.beginSSL(ws_host, ws_port, ws_path);
   webSocket.onEvent(webSocketEvent);
 
   // Initialize Button
@@ -126,7 +130,6 @@ void loop() {
   webSocket.loop();
   button.tick();
 
-  // --- UI State Handling ---
   if (currentState == IDLE) {
     if (millis() - lastWatchfaceUpdate > 1000) {
       drawWatchface();
@@ -134,7 +137,6 @@ void loop() {
     }
   } 
   else if (currentState == RECORDING_PTT || currentState == RECORDING_CONTINUOUS) {
-    // Pulse animation logic
     if (millis() - lastPulseUpdate > 30) {
       animatePulse();
       lastPulseUpdate = millis();
@@ -162,7 +164,6 @@ void loop() {
   }
 }
 
-// --- Button Handlers ---
 void handleHoldStart() {
   if (currentState == IDLE) {
     currentState = RECORDING_PTT;
@@ -195,7 +196,13 @@ void handleDoubleClick() {
 
 // --- WebSocket Handler ---
 void webSocketEvent(WStype_t type, uint8_t * payload, size_t length) {
-  if (type == WStype_TEXT) {
+  if (type == WStype_CONNECTED) {
+    Serial.println("[WS] Connected to Cloud Server!");
+    // SEND THE AUTHENTICATION TOKEN IMMEDIATELY!
+    String authMsg = String("TOKEN:") + DEVICE_TOKEN;
+    webSocket.sendTXT(authMsg);
+  }
+  else if (type == WStype_TEXT) {
     feedbackMessage = String((char*)payload);
     Serial.printf("[WS] Feedback: %s\n", feedbackMessage.c_str());
     currentState = FEEDBACK;
@@ -204,17 +211,13 @@ void webSocketEvent(WStype_t type, uint8_t * payload, size_t length) {
   }
 }
 
-// --- High-Tech UI Drawing Functions ---
-
-// Draws a sleek, futuristic grid wallpaper
+// --- UI Drawing Functions ---
 void drawHUDBackground() {
   tft.fillScreen(COLOR_BG);
-  // Draw grid lines
   for (int i = 0; i < 128; i += 16) {
     tft.drawFastVLine(i, 0, 128, COLOR_GRID);
     tft.drawFastHLine(0, i, 128, COLOR_GRID);
   }
-  // Draw corner accents
   tft.drawLine(0, 0, 15, 0, COLOR_ACCENT);
   tft.drawLine(0, 0, 0, 15, COLOR_ACCENT);
   tft.drawLine(127, 127, 112, 127, COLOR_ACCENT);
@@ -223,10 +226,8 @@ void drawHUDBackground() {
 
 void drawCenterText(String text, uint16_t color, int yPos) {
   tft.setTextColor(color);
-  // Center roughly based on font
   int xPos = (128 - (text.length() * 10)) / 2;
   if(xPos < 0) xPos = 0;
-  
   tft.setCursor(xPos, yPos);
   tft.print(text);
 }
@@ -236,11 +237,8 @@ void drawWatchface() {
   if(!getLocalTime(&timeinfo)){
     return;
   }
-  
-  // Clear only the text area inside the grid
   tft.fillRect(10, 20, 108, 60, COLOR_BG);
 
-  // Time (Large Custom Font)
   tft.setFont(&FreeSansBold12pt7b);
   tft.setTextColor(COLOR_TEXT);
   char timeStr[10];
@@ -248,7 +246,6 @@ void drawWatchface() {
   tft.setCursor(28, 50);
   tft.print(timeStr);
 
-  // Date (Smaller Custom Font)
   tft.setFont(&FreeSans9pt7b);
   tft.setTextColor(COLOR_ACCENT);
   char dateStr[15];
@@ -258,43 +255,34 @@ void drawWatchface() {
 }
 
 void animatePulse() {
-  // Clear previous circle by drawing it in background color
   tft.drawCircle(64, 50, pulseRadius, COLOR_BG);
   
-  // Update radius
   if (pulseGrowing) pulseRadius++;
   else pulseRadius--;
   
   if (pulseRadius > 25) pulseGrowing = false;
   if (pulseRadius < 15) pulseGrowing = true;
   
-  // Draw new circle
   tft.drawCircle(64, 50, pulseRadius, COLOR_RECORD);
-  tft.fillCircle(64, 50, 10, COLOR_RECORD); // Inner solid core
+  tft.fillCircle(64, 50, 10, COLOR_RECORD); 
 }
 
 void drawFeedbackModal(String msg) {
-  // Draw semi-transparent shadow (fake it with a dark rect)
   tft.fillRect(8, 28, 112, 72, 0x0000); 
-  
-  // Draw rounded modal
   tft.fillRoundRect(5, 25, 118, 78, 8, COLOR_MODAL);
-  tft.drawRoundRect(5, 25, 118, 78, 8, COLOR_ACCENT); // Border
+  tft.drawRoundRect(5, 25, 118, 78, 8, COLOR_ACCENT); 
   
-  // Modal Title
-  tft.setFont(); // Default tiny font for title
+  tft.setFont(); 
   tft.setTextColor(COLOR_ACCENT);
   tft.setCursor(15, 30);
   tft.print("NEXUS UPDATE");
   
   tft.drawLine(5, 40, 123, 40, COLOR_ACCENT);
   
-  // Message Text
   tft.setTextColor(COLOR_TEXT);
   tft.setCursor(10, 45);
   tft.setTextWrap(true);
   tft.print(msg);
   
-  // Reset font for next use
   tft.setFont(&FreeSans9pt7b);
 }

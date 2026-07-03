@@ -270,7 +270,7 @@ function EventCard({ event, openModal, onDelete }) {
     alert("Generating PPT uses the backend. Make sure your local backend is running!");
     // In production, this would call the deployed backend URL.
     try {
-      const res = await fetch('http://localhost:3000/api/generate-ppt', {
+      const res = await fetch('https://nexus-watch-backend.onrender.com/api/generate-ppt', {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify({ content: event.content || event.transcript })
@@ -291,7 +291,7 @@ function EventCard({ event, openModal, onDelete }) {
   const handleGenerateSummary = async () => {
     alert("Generating summary uses the backend. Make sure local backend is running!");
     try {
-      const res = await fetch('http://localhost:3000/api/generate-summary', {
+      const res = await fetch('https://nexus-watch-backend.onrender.com/api/generate-summary', {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify({ content: event.content || event.transcript })
