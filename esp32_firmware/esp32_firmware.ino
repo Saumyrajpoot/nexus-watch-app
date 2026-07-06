@@ -5,11 +5,9 @@
 #include <driver/i2s.h>
 #include <OneButton.h>
 #include <time.h>
-#include <SPI.h>
+#include <Wire.h>
 #include <Adafruit_GFX.h>
-#include <Adafruit_ST7735.h>
-#include <Fonts/FreeSans9pt7b.h>
-#include <Fonts/FreeSansBold12pt7b.h>
+#include <Adafruit_SSD1306.h>
 
 // --- Non-Volatile Storage ---
 Preferences preferences;
@@ -21,18 +19,11 @@ const uint16_t ws_port = 443;
 const char* ws_path = "/audio-stream";
 WebSocketsClient webSocket;
 
-// --- TFT Display Pins ---
-#define TFT_CS     5
-#define TFT_RST    17
-#define TFT_DC     16
-Adafruit_ST7735 tft = Adafruit_ST7735(TFT_CS, TFT_DC, TFT_RST);
-
-#define COLOR_BG      0x0821  
-#define COLOR_GRID    0x10A2  
-#define COLOR_TEXT    0xFFFF  
-#define COLOR_ACCENT  0x07E0  
-#define COLOR_RECORD  0xF800  
-#define COLOR_MODAL   0x2124  
+// --- OLED Display ---
+#define SCREEN_WIDTH 128
+#define SCREEN_HEIGHT 32
+#define OLED_RESET -1
+Adafruit_SSD1306 display(SCREEN_WIDTH, SCREEN_HEIGHT, &Wire, OLED_RESET);
 
 // --- Microphone Pins (I2S) ---
 #define I2S_WS 25
@@ -72,12 +63,15 @@ void saveConfigCallback() {
 void setup() {
   Serial.begin(115200);
 
-  // Initialize TFT
-  tft.initR(INITR_144GREENTAB);
-  tft.setRotation(1); 
-  tft.fillScreen(COLOR_BG);
-  tft.setFont(&FreeSans9pt7b);
-  drawCenterText("Booting Nexus...", COLOR_TEXT, 64);
+  // Initialize OLED
+  Wire.begin(21, 22); // SDA=21, SCL=22
+  if(!display.begin(SSD1306_SWITCHCAPVCC, 0x3C)) {
+    Serial.println(F("SSD1306 allocation failed"));
+    for(;;);
+  }
+  display.clearDisplay();
+  display.setTextColor(SSD1306_WHITE);
+  drawCenterText("Booting...", 12);
 
   // Load saved token from Memory
   preferences.begin("nexus_config", false);
@@ -92,8 +86,8 @@ void setup() {
   WiFiManagerParameter custom_token("token", "Paste Device Token from Dashboard", deviceToken.c_str(), 50);
   wifiManager.addParameter(&custom_token);
 
-  tft.fillScreen(COLOR_BG);
-  drawCenterText("Connecting to Wi-Fi...", COLOR_ACCENT, 64);
+  display.clearDisplay();
+  drawCenterText("Connecting WiFi...", 12);
 
   // Connect or create "Nexus Watch Setup"
   if (!wifiManager.autoConnect("Nexus Watch Setup")) {
@@ -112,8 +106,8 @@ void setup() {
   }
 
   // --- Normal Boot ---
-  tft.fillScreen(COLOR_BG);
-  drawCenterText("Syncing Time...", COLOR_ACCENT, 64);
+  display.clearDisplay();
+  drawCenterText("Syncing Time...", 12);
   configTime(gmtOffset_sec, daylightOffset_sec, ntpServer);
   
   const i2s_config_t i2s_config = {
@@ -190,7 +184,7 @@ void handleHoldStart() {
   if (currentState == IDLE) {
     currentState = RECORDING_PTT;
     drawHUDBackground();
-    drawCenterText("Task Mode", COLOR_TEXT, 100);
+    drawCenterText("Task Mode", 12);
   }
 }
 
@@ -198,7 +192,7 @@ void handleHoldStop() {
   if (currentState == RECORDING_PTT) {
     currentState = PROCESSING;
     drawHUDBackground();
-    drawCenterText("AI Thinking...", ST77XX_YELLOW, 64);
+    drawCenterText("Thinking...", 12);
     webSocket.sendTXT("END_STREAM_PTT");
   }
 }
@@ -207,12 +201,12 @@ void handleDoubleClick() {
   if (currentState == RECORDING_CONTINUOUS) {
     currentState = PROCESSING;
     drawHUDBackground();
-    drawCenterText("AI Thinking...", ST77XX_YELLOW, 64);
+    drawCenterText("Thinking...", 12);
     webSocket.sendTXT("END_STREAM_CONTINUOUS");
   } else if (currentState == IDLE) {
     currentState = RECORDING_CONTINUOUS;
     drawHUDBackground();
-    drawCenterText("Lecture Mode", COLOR_TEXT, 100);
+    drawCenterText("Lecture Mode", 12);
   }
 }
 
@@ -232,65 +226,59 @@ void webSocketEvent(WStype_t type, uint8_t * payload, size_t length) {
 }
 
 void drawHUDBackground() {
-  tft.fillScreen(COLOR_BG);
-  for (int i = 0; i < 128; i += 16) {
-    tft.drawFastVLine(i, 0, 128, COLOR_GRID);
-    tft.drawFastHLine(0, i, 128, COLOR_GRID);
-  }
-  tft.drawLine(0, 0, 15, 0, COLOR_ACCENT);
-  tft.drawLine(0, 0, 0, 15, COLOR_ACCENT);
-  tft.drawLine(127, 127, 112, 127, COLOR_ACCENT);
-  tft.drawLine(127, 127, 127, 112, COLOR_ACCENT);
+  display.clearDisplay();
+  // Minimalist strip doesn't need a grid
 }
 
-void drawCenterText(String text, uint16_t color, int yPos) {
-  tft.setTextColor(color);
-  int xPos = (128 - (text.length() * 10)) / 2;
+void drawCenterText(String text, int yPos) {
+  display.setTextSize(1);
+  int xPos = (128 - (text.length() * 6)) / 2; // Default font is approx 6px wide per char
   if(xPos < 0) xPos = 0;
-  tft.setCursor(xPos, yPos);
-  tft.print(text);
+  display.setCursor(xPos, yPos);
+  display.print(text);
+  display.display();
 }
 
 void drawWatchface() {
   struct tm timeinfo;
   if(!getLocalTime(&timeinfo)) return;
-  tft.fillRect(10, 20, 108, 60, COLOR_BG);
-  tft.setFont(&FreeSansBold12pt7b);
-  tft.setTextColor(COLOR_TEXT);
+  
+  display.clearDisplay();
+  display.setTextColor(SSD1306_WHITE);
+  
   char timeStr[10];
   sprintf(timeStr, "%02d:%02d", timeinfo.tm_hour, timeinfo.tm_min);
-  tft.setCursor(28, 50);
-  tft.print(timeStr);
-  tft.setFont(&FreeSans9pt7b);
-  tft.setTextColor(COLOR_ACCENT);
-  char dateStr[15];
-  sprintf(dateStr, "%02d/%02d/%04d", timeinfo.tm_mday, timeinfo.tm_mon + 1, timeinfo.tm_year + 1900);
-  tft.setCursor(20, 75);
-  tft.print(dateStr);
+  
+  // Large clock in center
+  display.setTextSize(3);
+  display.setCursor(20, 5);
+  display.print(timeStr);
+  
+  display.display();
 }
 
 void animatePulse() {
-  tft.drawCircle(64, 50, pulseRadius, COLOR_BG);
-  if (pulseGrowing) pulseRadius++;
-  else pulseRadius--;
-  if (pulseRadius > 25) pulseGrowing = false;
-  if (pulseRadius < 15) pulseGrowing = true;
-  tft.drawCircle(64, 50, pulseRadius, COLOR_RECORD);
-  tft.fillCircle(64, 50, 10, COLOR_RECORD); 
+  display.clearDisplay();
+  display.setTextSize(2);
+  display.setCursor(20, 8);
+  
+  if (pulseGrowing) {
+    display.print("[ REC ]");
+    pulseGrowing = false;
+  } else {
+    // Blank screen for flashing effect
+    pulseGrowing = true;
+  }
+  display.display();
 }
 
 void drawFeedbackModal(String msg) {
-  tft.fillRect(8, 28, 112, 72, 0x0000); 
-  tft.fillRoundRect(5, 25, 118, 78, 8, COLOR_MODAL);
-  tft.drawRoundRect(5, 25, 118, 78, 8, COLOR_ACCENT); 
-  tft.setFont(); 
-  tft.setTextColor(COLOR_ACCENT);
-  tft.setCursor(15, 30);
-  tft.print("NEXUS UPDATE");
-  tft.drawLine(5, 40, 123, 40, COLOR_ACCENT);
-  tft.setTextColor(COLOR_TEXT);
-  tft.setCursor(10, 45);
-  tft.setTextWrap(true);
-  tft.print(msg);
-  tft.setFont(&FreeSans9pt7b);
+  display.clearDisplay();
+  display.setTextSize(1);
+  display.setCursor(0, 0);
+  display.println("AI STATUS:");
+  display.drawLine(0, 9, 128, 9, SSD1306_WHITE);
+  display.setCursor(0, 12);
+  display.print(msg);
+  display.display();
 }
