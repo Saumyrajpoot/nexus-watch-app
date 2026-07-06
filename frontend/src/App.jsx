@@ -113,6 +113,7 @@ function Dashboard({ session }) {
   const [summaryModal, setSummaryModal] = useState({ isOpen: false, text: '', title: '' });
   const [deviceToken, setDeviceToken] = useState(null);
   const [phoneNumber, setPhoneNumber] = useState('');
+  const [isEditingPhone, setIsEditingPhone] = useState(false);
   const [copied, setCopied] = useState(false);
 
   const fetchEvents = async () => {
@@ -237,18 +238,25 @@ function Dashboard({ session }) {
               </button>
             ) : (
               <div className="flex flex-col sm:flex-row gap-3 w-full md:w-auto items-end sm:items-center">
-                <div className="flex bg-slate-800 rounded-xl overflow-hidden border border-slate-700">
-                  <input 
-                    type="text" 
-                    value={phoneNumber} 
-                    onChange={(e) => setPhoneNumber(e.target.value)} 
-                    placeholder="Alert Phone (e.g. +91...)" 
-                    className="bg-transparent text-white px-3 py-2 outline-none w-44 text-sm font-medium placeholder:text-slate-500"
-                  />
-                  <button onClick={savePhoneNumber} className="bg-emerald-600 hover:bg-emerald-500 text-white px-4 text-sm font-bold transition-colors">
-                    SAVE
-                  </button>
-                </div>
+                {phoneNumber && !isEditingPhone ? (
+                  <div className="flex items-center bg-slate-800/50 rounded-xl border border-slate-700 px-4 py-2 h-[42px]">
+                    <span className="text-sm font-medium text-slate-300 mr-3">Alerts: <span className="text-emerald-400 font-bold">{phoneNumber}</span></span>
+                    <button onClick={() => setIsEditingPhone(true)} className="text-xs text-blue-400 hover:text-blue-300 uppercase font-bold transition-colors">Edit</button>
+                  </div>
+                ) : (
+                  <div className="flex bg-slate-800 rounded-xl overflow-hidden border border-slate-700 h-[42px]">
+                    <input 
+                      type="text" 
+                      value={phoneNumber} 
+                      onChange={(e) => setPhoneNumber(e.target.value)} 
+                      placeholder="Alert Phone (e.g. +91...)" 
+                      className="bg-transparent text-white px-3 py-2 outline-none w-44 text-sm font-medium placeholder:text-slate-500"
+                    />
+                    <button onClick={() => { savePhoneNumber(); setIsEditingPhone(false); }} className="bg-emerald-600 hover:bg-emerald-500 text-white px-4 text-sm font-bold transition-colors">
+                      SAVE
+                    </button>
+                  </div>
+                )}
                  <button onClick={handleCopyToken} className="px-4 py-2.5 bg-slate-700 hover:bg-slate-600 text-white text-sm font-bold rounded-xl transition-all border border-slate-600 flex items-center justify-center gap-2">
                   {copied ? (
                     <>

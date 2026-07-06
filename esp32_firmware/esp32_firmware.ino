@@ -92,6 +92,7 @@ void setup() {
   WiFiManagerParameter custom_token("token", "Paste Device Token from Dashboard", deviceToken.c_str(), 50);
   wifiManager.addParameter(&custom_token);
 
+  tft.fillScreen(COLOR_BG);
   drawCenterText("Connecting to Wi-Fi...", COLOR_ACCENT, 64);
 
   // Connect or create "Nexus Watch Setup"
@@ -111,6 +112,7 @@ void setup() {
   }
 
   // --- Normal Boot ---
+  tft.fillScreen(COLOR_BG);
   drawCenterText("Syncing Time...", COLOR_ACCENT, 64);
   configTime(gmtOffset_sec, daylightOffset_sec, ntpServer);
   
