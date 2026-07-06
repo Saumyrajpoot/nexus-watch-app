@@ -218,6 +218,18 @@ cron.schedule('* * * * *', async () => {
                         from: process.env.TWILIO_PHONE_NUMBER
                     });
                     console.log(`Call successfully initiated to ${userPhone}!`);
+                    
+                    // Send an SMS Notification alongside the call
+                    try {
+                        await twilioClient.messages.create({
+                            body: `Nexus Alert: You have a scheduled task starting now - ${meeting.title}.`,
+                            to: userPhone,
+                            from: process.env.TWILIO_PHONE_NUMBER
+                        });
+                        console.log(`SMS Notification sent to ${userPhone}!`);
+                    } catch(smsErr) {
+                        console.error("Twilio SMS failed:", smsErr);
+                    }
                 } catch(e) {
                     console.error("Twilio Call failed:", e);
                 }

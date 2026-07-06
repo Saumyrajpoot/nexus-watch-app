@@ -415,11 +415,12 @@ function EventCard({ event, openModal, onDelete }) {
         </button>
       </div>
 
-      {(isPresentation || !isMeeting) && (
-        <div className="mt-2 text-slate-300 text-sm leading-relaxed bg-black/30 p-4 rounded-2xl">
-          {event.content}
-        </div>
-      )}
+            {event.content && (
+              <div className="mt-5 text-slate-300 text-sm leading-relaxed bg-slate-800/30 p-5 rounded-2xl border border-white/5 font-medium">
+                {isMeeting && <span className="block text-xs font-bold text-slate-500 uppercase tracking-widest mb-2">AI Transcript</span>}
+                {event.content}
+              </div>
+            )}
 
       {isPresentation && (
         <div className="mt-4 flex gap-2">

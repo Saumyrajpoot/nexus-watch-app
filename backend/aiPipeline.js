@@ -85,7 +85,8 @@ If the audio is just a general thought, classify as 'log_note' and extract the '
                 type: 'meeting',
                 title: resultJson.title || "New Meeting",
                 time: resultJson.time || new Date().toISOString(),
-                duration_mins: resultJson.duration_mins || 30
+                duration_mins: resultJson.duration_mins || 30,
+                content: transcriptText
             }]);
             responseMessage = `Meeting Logged: ${resultJson.title}`;
         } else if (intent === 'presentation') {
