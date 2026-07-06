@@ -199,12 +199,14 @@ cron.schedule('* * * * *', async () => {
             const { data: deviceData } = await supabase
                 .from('devices')
                 .select('phone_number')
-                .eq('user_id', meeting.user_id)
-                .limit(1)
-                .single();
-                
-            if (deviceData && deviceData.phone_number) {
-                userPhone = deviceData.phone_number;
+                .eq('user_id', meeting.user_id);
+            
+            if (deviceData && deviceData.length > 0) {
+                // Find the first device row that actually has a saved phone number
+                const validDevice = deviceData.find(d => d.phone_number);
+                if (validDevice) {
+                    userPhone = validDevice.phone_number;
+                }
             }
 
             if (twilioClient && process.env.TWILIO_PHONE_NUMBER && userPhone) {
