@@ -179,8 +179,7 @@ void loop() {
       int samples = bytesIn / sizeof(int32_t);
       int16_t pcm16[BUFFER_LEN];
       for (int i = 0; i < samples; i++) {
-        // Shift by 14 instead of 16 to increase INMP441 volume by 4x for Gemini
-        pcm16[i] = sBuffer[i] >> 14; 
+        pcm16[i] = sBuffer[i] >> 16; 
       }
       webSocket.sendBIN((uint8_t*)pcm16, samples * sizeof(int16_t));
     }

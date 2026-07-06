@@ -44,6 +44,11 @@ CRITICAL RULE: The user is in India (IST). The current local time in India is ${
 If the user says words like 'schedule', 'remind', 'book', 'call', 'meeting', or mentions a specific time/date (e.g., 'at 11:07 am'), you MUST classify the intent as 'schedule'.
 
 If it is 'schedule', extract the 'title', a precise 'time', and 'duration_mins'.
+
+TITLE RULES:
+- The 'title' MUST be a short, 2-5 word summary (e.g. "Dance Classes", "Table Booking").
+- NEVER put your reasoning, logic, or calculations in the 'title'. Just the short name.
+
 TIME FORMATTING RULES:
 1. You MUST output the exact local date and time the user requested.
 2. If the user says "12:25", your output MUST contain "12:25:00". Do NOT hallucinate or change the hour.
