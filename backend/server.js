@@ -175,15 +175,16 @@ const twilioClient = process.env.TWILIO_ACCOUNT_SID ? twilio(process.env.TWILIO_
 cron.schedule('* * * * *', async () => {
     console.log("Checking for upcoming meetings...");
     const now = new Date();
-    const oneMinLater = new Date(now.getTime() + 60000);
+    // Look backward! If cron runs at 12:20:05, check for events between 12:19:05 and 12:20:05.
+    const oneMinAgo = new Date(now.getTime() - 60000);
     
-    // Find meetings happening between now and 1 min from now
+    // Find meetings scheduled to happen in the LAST 60 seconds
     const { data: meetings, error } = await supabase
         .from('events')
         .select('*')
         .eq('type', 'meeting')
-        .gte('time', now.toISOString())
-        .lt('time', oneMinLater.toISOString());
+        .gte('time', oneMinAgo.toISOString())
+        .lte('time', now.toISOString());
 
     if (error) {
         console.error("Cron fetch error:", error);
