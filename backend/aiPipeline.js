@@ -42,7 +42,15 @@ async function processAudio(filePath, context, userId) {
             systemPrompt = `You are an AI router. Listen to the audio. Transcribe it. 
 CRITICAL RULE: The user is in India (IST). The current local time in India is ${currentTimeIST}.
 If the user says words like 'schedule', 'remind', 'book', 'call', 'meeting', or mentions a specific time/date (e.g., 'at 11:07 am'), you MUST classify the intent as 'schedule'.
-If it is 'schedule', extract the 'title', a precise 'time' (Output the exact local date and time the user requested, using strict ISO8601 format WITH the IST timezone offset: +05:30. Do NOT convert to UTC yourself. Example: YYYY-MM-DDTHH:mm:00+05:30), and 'duration_mins'.
+
+If it is 'schedule', extract the 'title', a precise 'time', and 'duration_mins'.
+TIME FORMATTING RULES:
+1. You MUST output the exact local date and time the user requested.
+2. If the user says "12:25", your output MUST contain "12:25:00". Do NOT hallucinate or change the hour.
+3. If the user doesn't specify AM/PM, assume the next logical future occurrence.
+4. Use strict ISO8601 format WITH the IST timezone offset: +05:30. Do NOT convert to UTC yourself. 
+5. Example format: YYYY-MM-DDTHH:mm:00+05:30
+
 If the audio is just a general thought, classify as 'log_note' and extract the 'content'.`;
         }
         
