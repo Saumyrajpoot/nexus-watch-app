@@ -410,7 +410,9 @@ function EventCard({ event, openModal, onDelete }) {
                 isMeeting ? 'text-blue-400' : isPresentation ? 'text-red-500' : 'text-emerald-400'
               }`}>{isMeeting ? 'Scheduled Task' : isPresentation ? 'Presentation Log' : 'Voice Note'}</span>
               <span className="text-slate-600 font-bold">•</span>
-              <span className="text-xs font-medium text-slate-500">{dateFormatted} at {timeFormatted}</span>
+              <span className="text-xs font-medium text-slate-500">
+                {isMeeting && event.time ? `Scheduled for: ${new Date(event.time).toLocaleString([], { month: 'short', day: 'numeric', hour: '2-digit', minute: '2-digit' })}` : `Logged on: ${dateFormatted} at ${timeFormatted}`}
+              </span>
             </div>
             
             <h3 className="text-2xl font-bold text-white leading-tight drop-shadow-md">

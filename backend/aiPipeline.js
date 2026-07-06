@@ -34,12 +34,15 @@ async function processAudio(filePath, context, userId) {
         const audioData = fs.readFileSync(filePath).toString("base64");
         
         let systemPrompt = "";
+        const currentTimeIST = new Date().toLocaleString("en-US", {timeZone: "Asia/Kolkata"});
+        
         if (context === 'presentation') {
             systemPrompt = "You are an AI router. Listen to the audio. Transcribe it. Since this is a CONTINUOUS recording, classify the intent as 'presentation'. Extract a 'title' for the presentation, and put a detailed summary in the 'content' field.";
         } else {
             systemPrompt = `You are an AI router. Listen to the audio. Transcribe it. 
-CRITICAL RULE: If the user says words like 'schedule', 'remind', 'book', 'call', 'meeting', or mentions a specific time/date (e.g., 'by 4 PM', 'tomorrow'), you MUST classify the intent as 'schedule'.
-If it is 'schedule', extract the 'title', a precise 'time' (in ISO8601 format), and 'duration_mins'.
+CRITICAL RULE: The user is in India (IST). The current local time in India is ${currentTimeIST}.
+If the user says words like 'schedule', 'remind', 'book', 'call', 'meeting', or mentions a specific time/date (e.g., 'at 11:07 am'), you MUST classify the intent as 'schedule'.
+If it is 'schedule', extract the 'title', a precise 'time' (Convert their local IST time into strict absolute UTC ISO8601 format with the Z suffix), and 'duration_mins'.
 If the audio is just a general thought, classify as 'log_note' and extract the 'content'.`;
         }
         
