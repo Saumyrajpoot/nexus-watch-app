@@ -244,16 +244,18 @@ const PORT = process.env.PORT || 3000;
 
 app.get('/debug', async (req, res) => {
     const now = new Date();
-    const { data: meetings, error } = await supabase
+    
+    // Fetch the last 3 events of ANY type to see exactly what happened
+    const { data: allEvents, error } = await supabase
         .from('events')
-        .select('*')
-        .eq('type', 'meeting')
-        .lte('time', now.toISOString());
+        .select('*, devices(phone_number)')
+        .order('created_at', { ascending: false })
+        .limit(3);
         
     res.json({
         serverTimeUTC: now.toISOString(),
         serverTimeLocal: now.toString(),
-        uncalledMeetingsInPast: meetings,
+        recentEvents: allEvents,
         dbError: error
     });
 });
