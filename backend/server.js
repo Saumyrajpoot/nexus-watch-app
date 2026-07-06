@@ -245,18 +245,24 @@ const PORT = process.env.PORT || 3000;
 app.get('/debug', async (req, res) => {
     const now = new Date();
     
-    // Fetch the last 3 events of ANY type to see exactly what happened
-    const { data: allEvents, error } = await supabase
+    // Fetch events without the broken join
+    const { data: allEvents, error: eventsError } = await supabase
         .from('events')
-        .select('*, devices(phone_number)')
+        .select('*')
         .order('created_at', { ascending: false })
         .limit(3);
         
+    // Fetch all devices to verify phone numbers exist
+    const { data: allDevices, error: devicesError } = await supabase
+        .from('devices')
+        .select('*');
+        
     res.json({
         serverTimeUTC: now.toISOString(),
-        serverTimeLocal: now.toString(),
         recentEvents: allEvents,
-        dbError: error
+        devices: allDevices,
+        eventsError,
+        devicesError
     });
 });
 
