@@ -241,6 +241,23 @@ cron.schedule('* * * * *', async () => {
 });
 
 const PORT = process.env.PORT || 3000;
+
+app.get('/debug', async (req, res) => {
+    const now = new Date();
+    const { data: meetings, error } = await supabase
+        .from('events')
+        .select('*')
+        .eq('type', 'meeting')
+        .lte('time', now.toISOString());
+        
+    res.json({
+        serverTimeUTC: now.toISOString(),
+        serverTimeLocal: now.toString(),
+        uncalledMeetingsInPast: meetings,
+        dbError: error
+    });
+});
+
 server.listen(PORT, () => {
     console.log(`Backend server listening on port ${PORT}`);
 });
