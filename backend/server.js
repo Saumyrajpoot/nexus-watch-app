@@ -175,15 +175,12 @@ const twilioClient = process.env.TWILIO_ACCOUNT_SID ? twilio(process.env.TWILIO_
 cron.schedule('* * * * *', async () => {
     console.log("Checking for upcoming meetings...");
     const now = new Date();
-    // Look backward! If cron runs at 12:20:05, check for events between 12:19:05 and 12:20:05.
-    const oneMinAgo = new Date(now.getTime() - 60000);
     
-    // Find meetings scheduled to happen in the LAST 60 seconds
+    // Find ALL meetings that are in the past and haven't been called yet!
     const { data: meetings, error } = await supabase
         .from('events')
         .select('*')
         .eq('type', 'meeting')
-        .gte('time', oneMinAgo.toISOString())
         .lte('time', now.toISOString());
 
     if (error) {
@@ -193,9 +190,11 @@ cron.schedule('* * * * *', async () => {
 
     if (meetings && meetings.length > 0) {
         for (const meeting of meetings) {
-            console.log(`Triggering Call for meeting: ${meeting.title}`);
+            console.log(`Processing meeting: ${meeting.title} at ${meeting.time}`);
             
-            // Dynamically fetch the user's phone number from their profile
+            // Mark as done immediately to guarantee we never call this again!
+            await supabase.from('events').update({ type: 'meeting_done' }).eq('id', meeting.id);
+            
             let userPhone = null;
             const { data: deviceData } = await supabase
                 .from('devices')

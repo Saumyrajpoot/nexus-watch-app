@@ -356,7 +356,7 @@ function Dashboard({ session }) {
 }
 
 function EventCard({ event, openModal, onDelete }) {
-  const isMeeting = event.type === 'meeting';
+  const isMeeting = event.type === 'meeting' || event.type === 'meeting_done';
   const isPresentation = event.type === 'presentation';
   const timeFormatted = new Date(event.created_at).toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' });
   const dateFormatted = new Date(event.created_at).toLocaleDateString([], { month: 'short', day: 'numeric' });
