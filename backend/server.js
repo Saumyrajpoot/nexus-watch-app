@@ -271,7 +271,7 @@ app.get('/debug', async (req, res) => {
 app.get('/test-groq', async (req, res) => {
     try {
         const Groq = require('groq-sdk');
-        const groq = new Groq({ apiKey: process.env.GROQ_API_KEY });
+        const groq = new Groq({ apiKey: (process.env.GROQ_API_KEY || 'MISSING_KEY').trim() });
         const chatCompletion = await groq.chat.completions.create({
             messages: [{ role: 'user', content: 'hello' }],
             model: "llama3-70b-8192"

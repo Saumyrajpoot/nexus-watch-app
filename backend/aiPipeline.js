@@ -2,7 +2,7 @@ const fs = require('fs');
 const { createClient } = require('@supabase/supabase-js');
 const Groq = require('groq-sdk');
 
-const groq = new Groq({ apiKey: process.env.GROQ_API_KEY });
+const groq = new Groq({ apiKey: (process.env.GROQ_API_KEY || 'MISSING_KEY').trim() });
 
 const supabaseUrl = process.env.SUPABASE_URL;
 // Use SERVICE_KEY to bypass RLS, fallback to ANON_KEY
