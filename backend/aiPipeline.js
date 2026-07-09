@@ -38,7 +38,7 @@ async function processAudio(filePath, context, userId) {
                     role: 'user',
                     parts: [
                         { inlineData: { data: audioData, mimeType: "audio/wav" } },
-                        { text: "Listen to this audio and transcribe it EXACTLY word-for-word. Do not summarize, do not add your own thoughts, do not fix grammar. Just return the pure verbatim transcript text." }
+                        { text: "You are an expert transcriber. Listen to this audio and transcribe it accurately. You may fix minor audio garbling to make the sentence coherent, but do NOT change the core meaning and do NOT summarize. \n\nCONTEXT: The user frequently talks about scheduling meetings, team discussions, final presentations, and logging notes. Bias your transcription towards these professional terms to avoid outputting gibberish if the audio is slightly noisy. Just return the transcript text." }
                     ]
                 }
             ]
