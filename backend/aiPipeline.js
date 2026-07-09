@@ -38,7 +38,7 @@ async function processAudio(filePath, context, userId) {
                     role: 'user',
                     parts: [
                         { inlineData: { data: audioData, mimeType: "audio/wav" } },
-                        { text: "You are an expert transcriber. Listen to this audio and transcribe it accurately. You may fix minor audio garbling to make the sentence coherent, but do NOT change the core meaning and do NOT summarize. \n\nCONTEXT: The user frequently talks about scheduling meetings, team discussions, final presentations, and logging notes. Bias your transcription towards these professional terms to avoid outputting gibberish if the audio is slightly noisy. Just return the transcript text." }
+                        { text: "You are an expert transcriber. Listen to this audio and transcribe it accurately. You may fix minor audio garbling to make the sentence coherent, but do NOT change the core meaning and do NOT summarize. \n\nCONTEXT: The user will dictate tasks, reminders, meetings, presentations, or general thoughts. Transcribe accurately without bias towards any specific category, but ensure common words are captured cleanly to avoid gibberish. Just return the transcript text." }
                     ]
                 }
             ]
@@ -60,9 +60,16 @@ async function processAudio(filePath, context, userId) {
             const currentTimeIST = new Date().toLocaleString("en-US", {timeZone: "Asia/Kolkata"});
             const routingPrompt = `Read the following transcript. 
 Current local time in India (IST): ${currentTimeIST}.
-Does the user want to schedule a meeting, call, or reminder for a specific time?
-If yes, set is_schedule to true and extract the 'title' (2-5 words max) and 'time' (strict ISO8601 format with +05:30 offset).
-If no (it's just a general thought or note to save), set is_schedule to false.
+
+Does the user want to schedule a task, meeting, call, or reminder for a specific date or time? (e.g. "meeting at 11:45 pm", "call on 10 July at 10 am")
+
+If YES: 
+- Set is_schedule to true.
+- Extract the 'title' (2-5 words max).
+- Extract the EXACT 'time' mentioned. You MUST calculate the correct future date and time in strict ISO8601 format with the +05:30 offset based on the current local time provided above.
+
+If NO (it's just a general thought, note, or lacks a specific time):
+- Set is_schedule to false.
 
 Transcript: "${transcriptText}"`;
 
