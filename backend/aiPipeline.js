@@ -32,7 +32,7 @@ async function processAudio(filePath, context, userId) {
         
         // STEP 1: Pure Verbatim Transcription (No JSON Schema, No Bias)
         const transcribeResponse = await ai.models.generateContent({
-            model: 'gemini-1.5-flash',
+            model: 'gemini-2.0-flash',
             contents: [
                 {
                     role: 'user',
@@ -74,7 +74,7 @@ If NO (it's just a general thought, note, or lacks a specific time):
 Transcript: "${transcriptText}"`;
 
             const intentResponse = await ai.models.generateContent({
-                model: 'gemini-1.5-flash',
+                model: 'gemini-2.0-flash',
                 contents: routingPrompt,
                 config: {
                     responseMimeType: "application/json",
