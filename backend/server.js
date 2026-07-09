@@ -268,6 +268,20 @@ app.get('/debug', async (req, res) => {
     });
 });
 
+app.get('/test-groq', async (req, res) => {
+    try {
+        const Groq = require('groq-sdk');
+        const groq = new Groq({ apiKey: process.env.GROQ_API_KEY });
+        const chatCompletion = await groq.chat.completions.create({
+            messages: [{ role: 'user', content: 'hello' }],
+            model: "llama3-70b-8192"
+        });
+        res.json({ success: true, result: chatCompletion.choices[0].message.content });
+    } catch (e) {
+        res.json({ success: false, error: e.message, key_length: process.env.GROQ_API_KEY ? process.env.GROQ_API_KEY.length : 0 });
+    }
+});
+
 server.listen(PORT, () => {
     console.log(`Backend server listening on port ${PORT}`);
 });
