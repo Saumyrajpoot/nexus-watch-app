@@ -1,24 +1,13 @@
-const { GoogleGenAI } = require('@google/genai');
 const fs = require('fs');
 const { createClient } = require('@supabase/supabase-js');
+const Groq = require('groq-sdk');
 
-const ai = new GoogleGenAI({ apiKey: process.env.GEMINI_API_KEY });
+const groq = new Groq({ apiKey: process.env.GROQ_API_KEY });
 
 const supabaseUrl = process.env.SUPABASE_URL;
 // Use SERVICE_KEY to bypass RLS, fallback to ANON_KEY
 const supabaseKey = process.env.SUPABASE_SERVICE_KEY || process.env.SUPABASE_ANON_KEY;
 const supabase = createClient(supabaseUrl, supabaseKey);
-
-const intentSchema = {
-    type: "OBJECT",
-    properties: {
-        is_schedule: { type: "BOOLEAN", description: "True if the user is asking to schedule a meeting, call, or reminder." },
-        title: { type: "STRING", description: "Short title for the scheduled event (only if is_schedule is true)" },
-        time: { type: "STRING", description: "ISO8601 formatted time for the event (only if is_schedule is true)" },
-        duration_mins: { type: "NUMBER", description: "Duration in minutes" }
-    },
-    required: ["is_schedule"]
-};
 
 async function processAudio(filePath, context, userId) {
     if (!userId) {
@@ -27,31 +16,23 @@ async function processAudio(filePath, context, userId) {
     }
 
     try {
-        console.log(`Sending ${filePath} to Gemini API for pure transcription...`);
-        const audioData = fs.readFileSync(filePath).toString("base64");
+        console.log(`Sending ${filePath} to Groq Whisper API for transcription...`);
         
-        // STEP 1: Pure Verbatim Transcription (No JSON Schema, No Bias)
-        const transcribeResponse = await ai.models.generateContent({
-            model: 'gemini-2.0-flash',
-            contents: [
-                {
-                    role: 'user',
-                    parts: [
-                        { inlineData: { data: audioData, mimeType: "audio/wav" } },
-                        { text: "You are an expert transcriber. Listen to this audio and transcribe it accurately. You may fix minor audio garbling to make the sentence coherent, but do NOT change the core meaning and do NOT summarize. \n\nCONTEXT: The user will dictate tasks, reminders, meetings, presentations, or general thoughts. Transcribe accurately without bias towards any specific category, but ensure common words are captured cleanly to avoid gibberish. Just return the transcript text." }
-                    ]
-                }
-            ]
+        // STEP 1: Pure Verbatim Transcription (Whisper)
+        const transcription = await groq.audio.transcriptions.create({
+            file: fs.createReadStream(filePath),
+            model: "whisper-large-v3-turbo",
+            response_format: "json"
         });
         
-        let transcriptText = transcribeResponse.text.trim();
+        let transcriptText = transcription.text.trim();
         console.log(`🗣️ Transcribed verbatim: "${transcriptText}"`);
         
         if (!transcriptText) {
              return { success: false, message: "Could not transcribe audio." };
         }
 
-        // STEP 2: Intent Checking (Is it a schedule request for Twilio?)
+        // STEP 2: Intent Checking (Llama 3 JSON Mode)
         let isSchedule = false;
         let scheduleData = {};
         
@@ -73,16 +54,23 @@ If NO (it's just a general thought, note, or lacks a specific time):
 
 Transcript: "${transcriptText}"`;
 
-            const intentResponse = await ai.models.generateContent({
-                model: 'gemini-2.0-flash',
-                contents: routingPrompt,
-                config: {
-                    responseMimeType: "application/json",
-                    responseSchema: intentSchema
-                }
+            const chatCompletion = await groq.chat.completions.create({
+                messages: [
+                    {
+                        role: "system",
+                        content: "You are a JSON parsing router. You must ONLY output a JSON object containing the properties: is_schedule (boolean), title (string), time (string, ISO8601), duration_mins (number, default 30). Output exactly what is requested, no preamble."
+                    },
+                    {
+                        role: "user",
+                        content: routingPrompt
+                    }
+                ],
+                model: "llama3-70b-8192",
+                temperature: 0,
+                response_format: { type: "json_object" }
             });
             
-            scheduleData = JSON.parse(intentResponse.text);
+            scheduleData = JSON.parse(chatCompletion.choices[0].message.content);
             isSchedule = scheduleData.is_schedule;
             console.log(`🧠 Intent parsing result:`, scheduleData);
         }
@@ -138,35 +126,35 @@ function getEvents() { return []; }
 function clearEvents() { }
 
 async function generateSummaryAI(content) {
-    const response = await ai.models.generateContent({
-        model: 'gemini-2.5-flash',
-        contents: `You are an AI summarizer. Please provide a beautifully formatted Markdown summary of the following presentation transcript with key takeaways:\n\n${content}`
+    const chatCompletion = await groq.chat.completions.create({
+        messages: [{
+            role: 'user',
+            content: `You are an AI summarizer. Please provide a beautifully formatted Markdown summary of the following presentation transcript with key takeaways:\n\n${content}`
+        }],
+        model: "llama3-70b-8192"
     });
-    return response.text;
+    return chatCompletion.choices[0].message.content;
 }
 
 async function generatePPTStructureAI(content) {
-    const slideSchema = {
-        type: "ARRAY",
-        items: {
-            type: "OBJECT",
-            properties: {
-                title: { type: "STRING", description: "Slide Title" },
-                bullets: { type: "ARRAY", items: { type: "STRING", description: "Bullet point" }, description: "List of bullet points" }
+    const chatCompletion = await groq.chat.completions.create({
+        messages: [
+            {
+                role: "system",
+                content: "You are an AI presentation creator. You must output ONLY a JSON object containing a 'slides' property, which is an array of objects. Each slide object must have a 'title' (string) and 'bullets' (array of strings)."
             },
-            required: ["title", "bullets"]
-        }
-    };
-    
-    const response = await ai.models.generateContent({
-        model: 'gemini-2.5-flash',
-        contents: `You are an AI presentation creator. Break down the following transcript into 3-5 PowerPoint slides. Each slide should have a title and 2-4 bullet points.\n\nTranscript: ${content}`,
-        config: {
-            responseMimeType: "application/json",
-            responseSchema: slideSchema
-        }
+            {
+                role: 'user',
+                content: `Break down the following transcript into 3-5 PowerPoint slides. Each slide should have a title and 2-4 bullet points.\n\nTranscript: ${content}`
+            }
+        ],
+        model: "llama3-70b-8192",
+        temperature: 0,
+        response_format: { type: "json_object" }
     });
-    return JSON.parse(response.text);
+    
+    const result = JSON.parse(chatCompletion.choices[0].message.content);
+    return result.slides;
 }
 
 module.exports = { processAudio, getEvents, clearEvents, generateSummaryAI, generatePPTStructureAI, supabase };
