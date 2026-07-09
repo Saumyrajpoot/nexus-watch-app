@@ -9,17 +9,15 @@ const supabaseUrl = process.env.SUPABASE_URL;
 const supabaseKey = process.env.SUPABASE_SERVICE_KEY || process.env.SUPABASE_ANON_KEY;
 const supabase = createClient(supabaseUrl, supabaseKey);
 
-const schema = {
+const intentSchema = {
     type: "OBJECT",
     properties: {
-        transcript: { type: "STRING", description: "The exact transcribed text of the user's speech" },
-        intent: { type: "STRING", enum: ["schedule", "log_note", "presentation"], description: "The classified intent" },
-        title: { type: "STRING", description: "Title of the meeting or presentation" },
-        time: { type: "STRING", description: "ISO8601 formatted time of the meeting" },
-        duration_mins: { type: "NUMBER", description: "Duration in minutes" },
-        content: { type: "STRING", description: "Content of the note or summary of the presentation" }
+        is_schedule: { type: "BOOLEAN", description: "True if the user is asking to schedule a meeting, call, or reminder." },
+        title: { type: "STRING", description: "Short title for the scheduled event (only if is_schedule is true)" },
+        time: { type: "STRING", description: "ISO8601 formatted time for the event (only if is_schedule is true)" },
+        duration_mins: { type: "NUMBER", description: "Duration in minutes" }
     },
-    required: ["transcript", "intent"]
+    required: ["is_schedule"]
 };
 
 async function processAudio(filePath, context, userId) {
@@ -29,102 +27,96 @@ async function processAudio(filePath, context, userId) {
     }
 
     try {
-        console.log(`Sending ${filePath} to Gemini API (Context: ${context})...`);
-        
+        console.log(`Sending ${filePath} to Gemini API for pure transcription...`);
         const audioData = fs.readFileSync(filePath).toString("base64");
         
-        let systemPrompt = "";
-        const currentTimeIST = new Date().toLocaleString("en-US", {timeZone: "Asia/Kolkata"});
-        
-        if (context === 'presentation') {
-            systemPrompt = "You are an AI router. Listen to the audio. Transcribe it. Since this is a CONTINUOUS recording, classify the intent as 'presentation'. Extract a 'title' for the presentation, and put a detailed summary in the 'content' field.";
-        } else {
-            systemPrompt = `You are an AI router. Listen to the audio. Transcribe it. 
-CRITICAL RULE: The user is in India (IST). The current local time in India is ${currentTimeIST}.
-If the user says words like 'schedule', 'remind', 'book', 'call', 'meeting', or mentions a specific time/date (e.g., 'at 11:07 am'), you MUST classify the intent as 'schedule'.
-
-If it is 'schedule', extract the 'title', a precise 'time', and 'duration_mins'.
-
-TITLE RULES:
-- The 'title' MUST be a short, 2-5 word summary (e.g. "Dance Classes", "Table Booking").
-- NEVER put your reasoning, logic, or calculations in the 'title'. Just the short name.
-
-TIME FORMATTING RULES:
-1. You MUST output the exact local date and time the user requested.
-2. If the user says "12:25", your output MUST contain "12:25:00". Do NOT hallucinate or change the hour.
-3. If the user doesn't specify AM/PM, assume the next logical future occurrence.
-4. Use strict ISO8601 format WITH the IST timezone offset: +05:30. Do NOT convert to UTC yourself. 
-5. Example format: YYYY-MM-DDTHH:mm:00+05:30
-
-If the audio is just a general thought, classify as 'log_note' and extract the 'content'.`;
-        }
-        
-        const response = await ai.models.generateContent({
+        // STEP 1: Pure Verbatim Transcription (No JSON Schema, No Bias)
+        const transcribeResponse = await ai.models.generateContent({
             model: 'gemini-2.5-flash',
             contents: [
                 {
                     role: 'user',
                     parts: [
-                        {
-                            inlineData: {
-                                data: audioData,
-                                mimeType: "audio/wav"
-                            }
-                        },
-                        {
-                            text: systemPrompt
-                        }
+                        { inlineData: { data: audioData, mimeType: "audio/wav" } },
+                        { text: "Listen to this audio and transcribe it EXACTLY word-for-word. Do not summarize, do not add your own thoughts, do not fix grammar. Just return the pure verbatim transcript text." }
                     ]
                 }
-            ],
-            config: {
-                responseMimeType: "application/json",
-                responseSchema: schema
-            }
+            ]
         });
         
-        const resultJson = JSON.parse(response.text);
-        console.log(`Gemini Output:`, resultJson);
+        let transcriptText = transcribeResponse.text.trim();
+        console.log(`🗣️ Transcribed verbatim: "${transcriptText}"`);
         
-        const transcriptText = resultJson.transcript;
-        const intent = resultJson.intent;
+        if (!transcriptText) {
+             return { success: false, message: "Could not transcribe audio." };
+        }
+
+        // STEP 2: Intent Checking (Is it a schedule request for Twilio?)
+        let isSchedule = false;
+        let scheduleData = {};
         
-        // Execute Supabase Inserts based on intent
+        // We only check for schedule intent if it's not a continuous presentation recording
+        if (context !== 'presentation') {
+            const currentTimeIST = new Date().toLocaleString("en-US", {timeZone: "Asia/Kolkata"});
+            const routingPrompt = `Read the following transcript. 
+Current local time in India (IST): ${currentTimeIST}.
+Does the user want to schedule a meeting, call, or reminder for a specific time?
+If yes, set is_schedule to true and extract the 'title' (2-5 words max) and 'time' (strict ISO8601 format with +05:30 offset).
+If no (it's just a general thought or note to save), set is_schedule to false.
+
+Transcript: "${transcriptText}"`;
+
+            const intentResponse = await ai.models.generateContent({
+                model: 'gemini-2.5-flash',
+                contents: routingPrompt,
+                config: {
+                    responseMimeType: "application/json",
+                    responseSchema: intentSchema
+                }
+            });
+            
+            scheduleData = JSON.parse(intentResponse.text);
+            isSchedule = scheduleData.is_schedule;
+            console.log(`🧠 Intent parsing result:`, scheduleData);
+        }
+
+        // STEP 3: Save to Supabase based on Intent
         let responseMessage = "";
         
-        if (intent === 'schedule') {
+        if (isSchedule && scheduleData.time) {
+            // It IS a scheduling request (will be picked up by Twilio cron job)
             await supabase.from('events').insert([{
                 user_id: userId,
                 type: 'meeting',
-                title: resultJson.title || "New Meeting",
-                time: resultJson.time || new Date().toISOString(),
-                duration_mins: resultJson.duration_mins || 30,
+                title: scheduleData.title || "New Task",
+                time: scheduleData.time,
+                duration_mins: scheduleData.duration_mins || 30,
                 content: transcriptText
             }]);
-            responseMessage = `Meeting Logged: ${resultJson.title}`;
-        } else if (intent === 'presentation') {
+            responseMessage = `Scheduled: ${scheduleData.title}`;
+            
+        } else if (context === 'presentation') {
              await supabase.from('events').insert([{
                 user_id: userId,
                 type: 'presentation',
-                title: resultJson.title || "Lecture",
-                content: resultJson.content || resultJson.transcript
+                title: "Continuous Recording",
+                content: transcriptText
             }]);
             responseMessage = `Presentation Logged`;
-        } else if (intent === 'log_note') {
+            
+        } else {
+             // DEFAULT: It's just a note. Save verbatim!
              await supabase.from('events').insert([{
                 user_id: userId,
                 type: 'note',
-                content: resultJson.content || resultJson.transcript
+                content: transcriptText
             }]);
             responseMessage = `Note Logged`;
-        } else {
-            responseMessage = `Transcribed: ${transcriptText}`;
         }
         
         return {
             success: true,
             transcript: transcriptText,
-            action: resultJson,
             message: responseMessage
         };
 
