@@ -65,7 +65,7 @@ Transcript: "${transcriptText}"`;
                         content: routingPrompt
                     }
                 ],
-                model: "llama3-70b-8192",
+                model: "llama-3.3-70b-versatile",
                 temperature: 0,
                 response_format: { type: "json_object" }
             });
@@ -131,7 +131,7 @@ async function generateSummaryAI(content) {
             role: 'user',
             content: `You are an AI summarizer. Please provide a beautifully formatted Markdown summary of the following presentation transcript with key takeaways:\n\n${content}`
         }],
-        model: "llama3-70b-8192"
+        model: "llama-3.3-70b-versatile"
     });
     return chatCompletion.choices[0].message.content;
 }
@@ -148,7 +148,7 @@ async function generatePPTStructureAI(content) {
                 content: `Break down the following transcript into 3-5 PowerPoint slides. Each slide should have a title and 2-4 bullet points.\n\nTranscript: ${content}`
             }
         ],
-        model: "llama3-70b-8192",
+        model: "llama-3.3-70b-versatile",
         temperature: 0,
         response_format: { type: "json_object" }
     });

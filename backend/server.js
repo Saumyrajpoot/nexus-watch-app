@@ -274,7 +274,7 @@ app.get('/test-groq', async (req, res) => {
         const groq = new Groq({ apiKey: (process.env.GROQ_API_KEY || 'MISSING_KEY').trim() });
         const chatCompletion = await groq.chat.completions.create({
             messages: [{ role: 'user', content: 'hello' }],
-            model: "llama3-70b-8192"
+            model: "llama-3.3-70b-versatile"
         });
         res.json({ success: true, result: chatCompletion.choices[0].message.content });
     } catch (e) {
