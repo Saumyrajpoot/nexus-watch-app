@@ -30,7 +30,7 @@ Adafruit_SSD1306 display(SCREEN_WIDTH, SCREEN_HEIGHT, &Wire, OLED_RESET);
 #define I2S_SCK 26
 #define I2S_SD 33
 #define I2S_PORT I2S_NUM_0
-#define BUFFER_LEN 64
+#define BUFFER_LEN 1024
 int32_t sBuffer[BUFFER_LEN];
 
 // --- Button Pin ---
@@ -117,7 +117,7 @@ void setup() {
     .channel_format = I2S_CHANNEL_FMT_ONLY_LEFT,
     .communication_format = i2s_comm_format_t(I2S_COMM_FORMAT_I2S),
     .intr_alloc_flags = ESP_INTR_FLAG_LEVEL1,
-    .dma_buf_count = 4,
+    .dma_buf_count = 8,
     .dma_buf_len = BUFFER_LEN,
     .use_apll = false,
     .tx_desc_auto_clear = false,
@@ -173,7 +173,7 @@ void loop() {
       int samples = bytesIn / sizeof(int32_t);
       int16_t pcm16[BUFFER_LEN];
       for (int i = 0; i < samples; i++) {
-        pcm16[i] = sBuffer[i] >> 16; 
+        pcm16[i] = sBuffer[i] >> 13; // 8x Volume Boost  
       }
       webSocket.sendBIN((uint8_t*)pcm16, samples * sizeof(int16_t));
     }
