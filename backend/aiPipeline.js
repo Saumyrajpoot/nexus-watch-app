@@ -22,7 +22,6 @@ async function processAudio(filePath, context, userId) {
         const transcription = await groq.audio.transcriptions.create({
             file: fs.createReadStream(filePath),
             model: "whisper-large-v3", // Use the most accurate model
-            prompt: "The user is dictating tasks, meetings, calls, or presentations. Ensure high accuracy for times, dates, and words like 'group discussion' and 'presentation'.",
             response_format: "json",
             temperature: 0.0 // Force strict verbatim transcription, no hallucinations
         });
