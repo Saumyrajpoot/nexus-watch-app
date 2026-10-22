@@ -168,8 +168,10 @@ wss.on('connection', (ws) => {
 const cron = require('node-cron');
 const twilio = require('twilio');
 
-// Initialize Twilio
-const twilioClient = process.env.TWILIO_ACCOUNT_SID ? twilio(process.env.TWILIO_ACCOUNT_SID, process.env.TWILIO_AUTH_TOKEN) : null;
+// Initialize Twilio safely
+const twilioClient = (process.env.TWILIO_ACCOUNT_SID && process.env.TWILIO_ACCOUNT_SID.startsWith('AC') && process.env.TWILIO_AUTH_TOKEN && process.env.TWILIO_AUTH_TOKEN !== 'your_twilio_auth_token_here') 
+    ? twilio(process.env.TWILIO_ACCOUNT_SID, process.env.TWILIO_AUTH_TOKEN) 
+    : null;
 
 // Cron Job for AI Calling (Runs every minute)
 cron.schedule('* * * * *', async () => {
