@@ -34,11 +34,15 @@ export default function App() {
   const [activeFilter, setActiveFilter] = useState('all');
   const [searchTerm, setSearchTerm] = useState('');
 
-  // Events & Data State
+  // Events & Data State (Always guaranteed to have rich initial events)
   const [events, setEvents] = useState(() => {
     try {
       const saved = localStorage.getItem('nexus_events');
-      return saved ? JSON.parse(saved) : initialSampleEvents;
+      if (saved) {
+        const parsed = JSON.parse(saved);
+        if (Array.isArray(parsed) && parsed.length > 0) return parsed;
+      }
+      return initialSampleEvents;
     } catch (e) {
       return initialSampleEvents;
     }
@@ -65,25 +69,37 @@ export default function App() {
     } catch (e) {}
   }, [events]);
 
-  // Supabase Auth Listener (if configured)
+  // Supabase Auth Listener (Safely guarded)
   useEffect(() => {
     if (!supabase) return;
     
-    supabase.auth.getSession().then(({ data: { session } }) => {
-      if (session) {
-        setSession(session);
-        setIsDemoMode(false);
-      }
-    }).catch(() => {});
+    try {
+      supabase.auth.getSession().then((res) => {
+        if (res?.data?.session) {
+          setSession(res.data.session);
+          setIsDemoMode(false);
+        }
+      }).catch((e) => {
+        console.warn("Supabase getSession failed, continuing in Local Mode:", e);
+      });
 
-    const { data: authListener } = supabase.auth.onAuthStateChange((_event, session) => {
-      setSession(session);
-      if (session) setIsDemoMode(false);
-    });
+      const { data } = supabase.auth.onAuthStateChange((_event, session) => {
+        if (session) {
+          setSession(session);
+          setIsDemoMode(false);
+        } else {
+          setSession(null);
+        }
+      });
 
-    return () => {
-      if (authListener?.subscription) authListener.subscription.unsubscribe();
-    };
+      return () => {
+        if (data?.subscription) {
+          data.subscription.unsubscribe();
+        }
+      };
+    } catch (err) {
+      console.warn("Supabase auth listener setup error:", err);
+    }
   }, []);
 
   // Fetch Supabase data if logged in
@@ -282,18 +298,33 @@ export default function App() {
               </div>
 
               {/* Events Grid (2 columns on wide screens) */}
-              <div className="grid grid-cols-1 lg:grid-cols-2 gap-4">
-                {events.slice(0, 4).map((event) => (
-                  <EventCard
-                    key={event.id}
-                    event={event}
-                    onDelete={() => handleDeleteEvent(event.id)}
-                    onOpenSummary={(title, text) => setSummaryModal({ isOpen: true, title, text })}
-                    onOpenSlides={(title, slides) => setSlideModalData({ isOpen: true, title, slides })}
-                    backendUrl={BACKEND_URL}
-                  />
-                ))}
-              </div>
+              {events.length === 0 ? (
+                <div className="glass-panel p-8 rounded-3xl border border-white/10 text-center">
+                  <p className="text-sm font-bold text-white mb-2">No Logs in Queue</p>
+                  <p className="text-xs text-slate-400 mb-4 font-mono-tech">
+                    Record audio via the studio above or reload sample logs.
+                  </p>
+                  <button
+                    onClick={handleResetData}
+                    className="px-4 py-2 bg-rose-600 hover:bg-rose-500 text-white rounded-xl text-xs font-bold transition-all"
+                  >
+                    Restore Sample Logs
+                  </button>
+                </div>
+              ) : (
+                <div className="grid grid-cols-1 lg:grid-cols-2 gap-4">
+                  {events.slice(0, 4).map((event) => (
+                    <EventCard
+                      key={event.id}
+                      event={event}
+                      onDelete={() => handleDeleteEvent(event.id)}
+                      onOpenSummary={(title, text) => setSummaryModal({ isOpen: true, title, text })}
+                      onOpenSlides={(title, slides) => setSlideModalData({ isOpen: true, title, slides })}
+                      backendUrl={BACKEND_URL}
+                    />
+                  ))}
+                </div>
+              )}
             </div>
           )}
 

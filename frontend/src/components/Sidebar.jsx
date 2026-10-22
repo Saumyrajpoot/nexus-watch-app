@@ -24,7 +24,7 @@ export default function Sidebar({
       id: 'timeline',
       label: 'Intelligence Feed',
       sub: 'Voice Logs & Transcripts',
-      badge: eventCounts.total,
+      badge: eventCounts?.total ?? 0,
       icon: (
         <svg className="w-5 h-5" fill="none" stroke="currentColor" viewBox="0 0 24 24">
           <path strokeLinecap="round" strokeLinejoin="round" strokeWidth="2" d="M19 11H5m14 0a2 2 0 012 2v6a2 2 0 01-2 2H5a2 2 0 01-2-2v-6a2 2 0 012-2m14 0V9a2 2 0 00-2-2M5 11V9a2 2 0 012-2m0 0V5a2 2 0 012-2h6a2 2 0 012 2v2M7 7h10" />
@@ -47,7 +47,7 @@ export default function Sidebar({
       id: 'ai-studio',
       label: 'Presentation Studio',
       sub: 'PPTX Deck Generator',
-      badge: eventCounts.presentations,
+      badge: eventCounts?.presentations ?? 0,
       icon: (
         <svg className="w-5 h-5" fill="none" stroke="currentColor" viewBox="0 0 24 24">
           <path strokeLinecap="round" strokeLinejoin="round" strokeWidth="2" d="M7 12l3-3 3 3 4-4M8 21l4-4 4 4M3 4h18M4 4h16v12a1 1 0 01-1 1H5a1 1 0 01-1-1V4z" />
@@ -68,7 +68,7 @@ export default function Sidebar({
       id: 'twilio',
       label: 'Jarvis Dispatcher',
       sub: 'Automated Wakeup Calls',
-      badge: eventCounts.meetings,
+      badge: eventCounts?.meetings ?? 0,
       badgeColor: 'bg-blue-500/20 text-blue-300 border-blue-500/30',
       icon: (
         <svg className="w-5 h-5" fill="none" stroke="currentColor" viewBox="0 0 24 24">
